@@ -1,0 +1,265 @@
+import axios from 'axios';
+import { Article, ScheduleSettings } from '../types';
+
+export interface WordPressConfig {
+  id: string;
+  name: string;
+  url: string;
+  username: string;
+  applicationPassword: string;
+  isActive: boolean;
+  defaultCategory?: string;
+  scheduleSettings?: ScheduleSettings;
+}
+
+export class WordPressService {
+  private config: WordPressConfig;
+
+  constructor(config: WordPressConfig) {
+    this.config = config;
+  }
+
+  async testConnection(): Promise<boolean> {
+    try {
+      const response = await axios.get(`${this.config.url}/wp-json/wp/v2/posts`, {
+        headers: this.getAuthHeaders(),
+        params: { per_page: 1 }
+      });
+      return response.status === 200;
+    } catch (error) {
+      console.error('WordPress接続テストエラー:', error);
+      return false;
+    }
+  }
+
+  async publishArticle(
+    article: Article, 
+    publishStatus: 'publish' | 'draft' = 'publish'
+  ): Promise<{ success: boolean; wordPressId?: number; error?: string }> {
+    try {
+      // HTMLタグをそのまま使用（変換不要）
+      const processedContent = article.content;
+
+      // Get category IDs - only use existing categories, don't create new ones
+      const categoryIds = await this.getExistingCategoryIds(article.category);
+
+      const postData = {
+        title: article.title,
+        content: processedContent,
+        excerpt: article.excerpt,
+        status: publishStatus,
+        categories: categoryIds,
+        meta: {
+          _yoast_wpseo_focuskw: article.keywords.join(', '),
+          _yoast_wpseo_metadesc: article.excerpt,
+          _yoast_wpseo_title: article.title
+        }
+      };
+
+      const response = await axios.post(
+        `${this.config.url}/wp-json/wp/v2/posts`,
+        postData,
+        { headers: this.getAuthHeaders() }
+      );
+
+      if (response.status === 201) {
+        return {
+          success: true,
+          wordPressId: response.data.id
+        };
+      }
+
+      return {
+        success: false,
+        error: 'WordPress投稿に失敗しました'
+      };
+    } catch (error: any) {
+      console.error('WordPress投稿エラー:', error);
+      return {
+        success: false,
+        error: error.response?.data?.message || 'WordPress投稿でエラーが発生しました'
+      };
+    }
+  }
+
+  async scheduleArticle(article: Article, publishDate: Date): Promise<{ success: boolean; wordPressId?: number; error?: string }> {
+    try {
+      // HTMLタグをそのまま使用（変換不要）
+      const processedContent = article.content;
+
+      // Get category IDs - only use existing categories, don't create new ones
+      const categoryIds = await this.getExistingCategoryIds(article.category);
+
+      const postData = {
+        title: article.title,
+        content: processedContent,
+        excerpt: article.excerpt,
+        status: 'future',
+        date: publishDate.toISOString(),
+        categories: categoryIds,
+        meta: {
+          _yoast_wpseo_focuskw: article.keywords.join(', '),
+          _yoast_wpseo_metadesc: article.excerpt,
+          _yoast_wpseo_title: article.title
+        }
+      };
+
+      const response = await axios.post(
+        `${this.config.url}/wp-json/wp/v2/posts`,
+        postData,
+        { headers: this.getAuthHeaders() }
+      );
+
+      if (response.status === 201) {
+        return {
+          success: true,
+          wordPressId: response.data.id
+        };
+      }
+
+      return {
+        success: false,
+        error: 'WordPress予約投稿に失敗しました'
+      };
+    } catch (error: any) {
+      console.error('WordPress予約投稿エラー:', error);
+      return {
+        success: false,
+        error: error.response?.data?.message || 'WordPress予約投稿でエラーが発生しました'
+      };
+    }
+  }
+
+  async getRecentPosts(limit: number = 10): Promise<any[]> {
+    try {
+      const response = await axios.get(`${this.config.url}/wp-json/wp/v2/posts`, {
+        headers: this.getAuthHeaders(),
+        params: {
+          per_page: limit,
+          orderby: 'date',
+          order: 'desc'
+        }
+      });
+      return response.data;
+    } catch (error) {
+      console.error('WordPress記事取得エラー:', error);
+      return [];
+    }
+  }
+
+  async getExistingCategories(): Promise<{ id: number; name: string; slug: string }[]> {
+    try {
+      const response = await axios.get(`${this.config.url}/wp-json/wp/v2/categories`, {
+        headers: this.getAuthHeaders(),
+        params: { per_page: 100 } // 最大100個のカテゴリを取得
+      });
+      
+      return response.data.map((category: any) => ({
+        id: category.id,
+        name: category.name,
+        slug: category.slug
+      }));
+    } catch (error) {
+      console.error('既存カテゴリ取得エラー:', error);
+      return [];
+    }
+  }
+
+  private getAuthHeaders() {
+    const credentials = btoa(`${this.config.username}:${this.config.applicationPassword}`);
+    return {
+      'Authorization': `Basic ${credentials}`,
+      'Content-Type': 'application/json'
+    };
+  }
+
+  private async getExistingCategoryIds(articleCategory: string): Promise<number[]> {
+    try {
+      const categoryIds: number[] = [];
+
+      // First, try to add the default category from WordPress config (if it exists)
+      if (this.config.defaultCategory) {
+        const defaultCategoryId = await this.findExistingCategoryBySlugOrName(this.config.defaultCategory);
+        if (defaultCategoryId) {
+          categoryIds.push(defaultCategoryId);
+          console.log(`デフォルトカテゴリ「${this.config.defaultCategory}」を使用: ID ${defaultCategoryId}`);
+        } else {
+          console.warn(`デフォルトカテゴリ「${this.config.defaultCategory}」が見つかりません`);
+        }
+      }
+
+      // Then, try to add the article category if it's different from default and exists
+      if (articleCategory && articleCategory !== this.config.defaultCategory) {
+        const articleCategoryId = await this.findExistingCategoryBySlugOrName(articleCategory);
+        if (articleCategoryId && !categoryIds.includes(articleCategoryId)) {
+          categoryIds.push(articleCategoryId);
+          console.log(`記事カテゴリ「${articleCategory}」を使用: ID ${articleCategoryId}`);
+        } else {
+          console.warn(`記事カテゴリ「${articleCategory}」が見つかりません`);
+        }
+      }
+
+      // If no categories found, try to use the "Uncategorized" category (ID: 1)
+      if (categoryIds.length === 0) {
+        const uncategorizedId = await this.findExistingCategoryBySlugOrName('uncategorized');
+        if (uncategorizedId) {
+          categoryIds.push(uncategorizedId);
+          console.log('「未分類」カテゴリを使用: ID 1');
+        } else {
+          console.warn('カテゴリが見つからないため、WordPressのデフォルトカテゴリを使用します');
+          // Return empty array to let WordPress use its default category
+        }
+      }
+
+      return categoryIds;
+    } catch (error) {
+      console.error('既存カテゴリID取得エラー:', error);
+      return [];
+    }
+  }
+
+  private async findExistingCategoryBySlugOrName(categoryIdentifier: string): Promise<number | null> {
+    try {
+      // First, try to find by slug
+      let searchResponse = await axios.get(`${this.config.url}/wp-json/wp/v2/categories`, {
+        headers: this.getAuthHeaders(),
+        params: { slug: categoryIdentifier }
+      });
+
+      if (searchResponse.data.length > 0) {
+        return searchResponse.data[0].id;
+      }
+
+      // If not found by slug, try to find by name
+      searchResponse = await axios.get(`${this.config.url}/wp-json/wp/v2/categories`, {
+        headers: this.getAuthHeaders(),
+        params: { search: categoryIdentifier }
+      });
+
+      if (searchResponse.data.length > 0) {
+        // Find exact match by name
+        const exactMatch = searchResponse.data.find((cat: any) => 
+          cat.name.toLowerCase() === categoryIdentifier.toLowerCase()
+        );
+        if (exactMatch) {
+          return exactMatch.id;
+        }
+        // If no exact match, return the first result
+        return searchResponse.data[0].id;
+      }
+
+      // Category not found - DO NOT CREATE NEW CATEGORY
+      console.warn(`カテゴリ「${categoryIdentifier}」が見つかりません。新しいカテゴリは作成しません。`);
+      return null;
+    } catch (error) {
+      console.error(`カテゴリ検索エラー (${categoryIdentifier}):`, error);
+      return null;
+    }
+  }
+
+  // Legacy method for backward compatibility
+  private async getCategoryId(categoryName: string): Promise<number[]> {
+    const categoryId = await this.findExistingCategoryBySlugOrName(categoryName);
+    return categoryId ? [categoryId] : [];
+  }
+}
