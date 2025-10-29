@@ -1,594 +1,248 @@
-import React, { useState, useEffect } from 'react';
-import { Calendar, Clock, Play, Pause, Settings, Zap, FileText, Filter, Globe, RefreshCw, Edit, TrendingUp, Lightbulb, Target, Users, Bug, Trash2, Hash, X } from 'lucide-react';
-import { schedulerService } from '../services/schedulerService';
-import { useAppStore } from '../store/useAppStore';
-import toast from 'react-hot-toast';
+# サーバーサイドスケジューラー設定ガイド
 
-export const Scheduler: React.FC = () => {
-  const { articles = [], isGenerating, aiConfig, wordPressConfigs = [], updateWordPressConfig } = useAppStore();
-  const [isSchedulerActive, setIsSchedulerActive] = useState(false);
-  const [testGeneration, setTestGeneration] = useState(false);
-  const [schedulerStatus, setSchedulerStatus] = useState<any>(null);
-  const [debugMode, setDebugMode] = useState(false);
-  const [detailedStatus, setDetailedStatus] = useState<any>(null);
-  const [testKeywords, setTestKeywords] = useState<string[]>([]);
-  const [testKeywordInput, setTestKeywordInput] = useState('');
+このガイドでは、外部Cronサービスを使用してSupabase Edge Functionを定期的に実行し、24時間365日自動投稿を実現する方法を説明します。
 
-  const publishedToday = (articles || []).filter(article => 
-    article.publishedAt && 
-    new Date(article.publishedAt).toDateString() === new Date().toDateString()
-  );
+## 概要
 
-  const activeConfigs = (wordPressConfigs || []).filter(config => 
-    config.scheduleSettings?.isActive && 
-    Array.isArray(config.scheduleSettings.targetKeywords) && 
-    config.scheduleSettings.targetKeywords.length > 0
-  );
+- **目的**: ブラウザを閉じても自動的に記事を生成・投稿
+- **仕組み**: 外部Cronサービス → Supabase Edge Function → 記事生成 → WordPress投稿
+- **実行頻度**: 10分ごとにチェック（設定された時刻に自動実行）
 
-  // Check scheduler status on component mount and periodically
-  useEffect(() => {
-    const checkStatus = () => {
-      try {
-        const status = schedulerService.getSchedulerStatus();
-        setSchedulerStatus(status);
-        setIsSchedulerActive(status.isRunning);
-        
-        if (debugMode) {
-          const detailed = schedulerService.getDetailedStatus();
-          setDetailedStatus(detailed);
-        }
-      } catch (error) {
-        console.error('Scheduler status check error:', error);
-      }
-    };
+## 前提条件
 
-    checkStatus();
-    const interval = setInterval(checkStatus, 10000); // Check every 10 seconds
+✅ Supabase Edge Function `scheduler-executor` がデプロイ済み
+✅ WordPress設定がSupabaseデータベースに保存済み
+✅ AI設定（Gemini/OpenAI/Claude）がSupabaseデータベースに保存済み
+✅ スケジュール設定（キーワード、時刻、頻度）が保存済み
 
-    return () => clearInterval(interval);
-  }, [debugMode]);
+## 手順1: Edge Function URLの取得
 
-  // Auto-start scheduler if there are active configs
-  useEffect(() => {
-    if (activeConfigs.length > 0 && !isSchedulerActive && aiConfig) {
-      console.log('アクティブな設定が見つかりました。スケジューラーを自動開始します...');
-      handleStartScheduler();
-    }
-  }, [activeConfigs.length, aiConfig]);
+あなたのEdge Function URLは以下の形式です：
 
-  const handleAddTestKeyword = () => {
-    if (testKeywordInput.trim() && !testKeywords.includes(testKeywordInput.trim())) {
-      setTestKeywords(prev => [...prev, testKeywordInput.trim()]);
-      setTestKeywordInput('');
-    }
-  };
+```
+https://xafalymslrgksysvstqe.supabase.co/functions/v1/scheduler-executor
+```
 
-  const handleRemoveTestKeyword = (keyword: string) => {
-    setTestKeywords(prev => prev.filter(k => k !== keyword));
-  };
+このURLを外部Cronサービスから呼び出します。
 
-  const handleStartScheduler = () => {
-    if (!aiConfig) {
-      toast.error('AI設定を完了してください');
-      return;
-    }
-    
-    if (activeConfigs.length === 0) {
-      toast.error('少なくとも1つのWordPress設定でスケジュールを有効にしてください');
-      return;
-    }
+## 手順2: 外部Cronサービスの選択
 
-    try {
-      schedulerService.start();
-      setIsSchedulerActive(true);
-      toast.success(`自動投稿を開始しました（${activeConfigs.length}個のWordPress設定）`);
-      
-      // Save scheduler state
-      localStorage.setItem('schedulerWasRunning', 'true');
-    } catch (error) {
-      toast.error('スケジューラーの開始に失敗しました');
-    }
-  };
+以下のいずれかのサービスを推奨します：
 
-  const handleStopScheduler = () => {
-    schedulerService.stop();
-    setIsSchedulerActive(false);
-    toast.success('自動投稿を停止しました');
-    
-    // Clear scheduler state
-    localStorage.removeItem('schedulerWasRunning');
-  };
+### オプションA: cron-job.org（推奨・無料）
 
-  const handleTestGeneration = async () => {
-    if (!aiConfig) {
-      toast.error('AI設定を完了してください');
-      return;
-    }
-    
-    const activeWordPress = (wordPressConfigs || []).find(config => config.isActive);
-    if (!activeWordPress) {
-      toast.error('アクティブなWordPress設定を選択してください');
-      return;
-    }
+**特徴:**
+- 完全無料
+- 最短1分間隔で実行可能
+- 簡単な設定
+- 日本語対応
 
-    if (testKeywords.length === 0) {
-      toast.error('テスト用のキーワードを追加してください');
-      return;
-    }
+**設定手順:**
 
-    try {
-      setTestGeneration(true);
-      toast.loading('テスト記事を生成・投稿中...', { duration: 5000 });
-      
-      await schedulerService.testDailyGeneration(testKeywords);
-      toast.success('テスト記事の生成・投稿が完了しました');
-    } catch (error) {
-      toast.error('テスト生成に失敗しました');
-    } finally {
-      setTestGeneration(false);
-    }
-  };
+1. [cron-job.org](https://cron-job.org/) にアクセス
+2. 無料アカウントを作成
+3. 「Create Cronjob」をクリック
 
-  const toggleConfigSchedule = (configId: string) => {
-    const config = (wordPressConfigs || []).find(c => c.id === configId);
-    if (!config?.scheduleSettings) return;
+**Cronjob設定:**
 
-    const newIsActive = !config.scheduleSettings.isActive;
-    
-    updateWordPressConfig(configId, {
-      scheduleSettings: {
-        ...config.scheduleSettings,
-        isActive: newIsActive
-      }
-    });
+- **Title**: `AI Blog Scheduler`
+- **URL**: `https://xafalymslrgksysvstqe.supabase.co/functions/v1/scheduler-executor`
+- **Execution schedule**: `*/10 * * * *`（10分ごと）
+- **Request method**: `POST`
+- **Request body**:
+  ```json
+  {"forceExecute": false}
+  ```
+- **Request headers**:
+  ```
+  Content-Type: application/json
+  Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhhZmFseW1zbHJna3N5c3ZzdHFlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjE1NDQ2MTUsImV4cCI6MjA3NzEyMDYxNX0.CuSCldihlFqJ3dY2RNKx0sqdSiVIf_0z_Beiq0VMw1M
+  ```
 
-    // Restart the specific config scheduler
-    schedulerService.restartConfigScheduler(configId);
+4. 「Create」をクリック
 
-    toast.success(
-      newIsActive 
-        ? `${config.name}のスケジュールを有効にしました` 
-        : `${config.name}のスケジュールを無効にしました`
-    );
+### オプションB: EasyCron（無料プランあり）
 
-    // If this was the last active config and scheduler is running, stop it
-    if (!newIsActive && activeConfigs.length === 1 && isSchedulerActive) {
-      handleStopScheduler();
-    }
-    // If this is the first active config and scheduler is not running, start it
-    else if (newIsActive && activeConfigs.length === 0 && !isSchedulerActive && aiConfig) {
-      setTimeout(() => handleStartScheduler(), 100); // Small delay to ensure state is updated
-    }
-  };
+**特徴:**
+- 無料プランで最大1日1回まで
+- 有料プランで高頻度実行可能
+- 詳細なログ機能
 
-  const handleRefreshStatus = () => {
-    try {
-      const status = schedulerService.getSchedulerStatus();
-      setSchedulerStatus(status);
-      setIsSchedulerActive(status.isRunning);
-      
-      if (debugMode) {
-        const detailed = schedulerService.getDetailedStatus();
-        setDetailedStatus(detailed);
-      }
-      
-      toast.success('スケジューラー状態を更新しました');
-    } catch (error) {
-      console.error('Status refresh error:', error);
-      toast.error('状態更新に失敗しました');
-    }
-  };
+**設定手順:**
 
-  const handleClearExecutionHistory = () => {
-    if (window.confirm('実行履歴をクリアしますか？これにより、すべてのスケジュールが再実行される可能性があります。')) {
-      schedulerService.clearExecutionHistory();
-      toast.success('実行履歴をクリアしました');
-      handleRefreshStatus();
-    }
-  };
+1. [EasyCron](https://www.easycron.com/) にアクセス
+2. 無料アカウントを作成
+3. 「Add Cron Job」をクリック
 
-  const handleManualTrigger = async () => {
-    if (window.confirm('手動で自動投稿を実行しますか？')) {
-      try {
-        await schedulerService.manualTriggerExecution();
-        toast.success('手動実行を開始しました');
-      } catch (error) {
-        toast.error('手動実行に失敗しました');
-      }
-    }
-  };
+**Cron設定:**
 
-  const formatNextExecutionTime = (configId: string, scheduleSettings: any) => {
-    if (!schedulerStatus?.lastExecutionTimes) return '未実行';
-    
-    const lastExecution = schedulerStatus.lastExecutionTimes[configId];
-    if (!lastExecution) return '未実行';
-    
-    const [hours, minutes] = scheduleSettings.time.split(':').map(Number);
-    let nextExecution = new Date();
-    nextExecution.setHours(hours, minutes, 0, 0);
-    
-    // Calculate next execution based on frequency
-    if (scheduleSettings.frequency === 'daily') {
-      nextExecution.setDate(nextExecution.getDate() + 1);
-    } else if (scheduleSettings.frequency === 'weekly') {
-      nextExecution.setDate(nextExecution.getDate() + 7);
-    } else if (scheduleSettings.frequency === 'monthly') {
-      nextExecution.setMonth(nextExecution.getMonth() + 1);
-    }
-    
-    return nextExecution.toLocaleString('ja-JP', {
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    });
-  };
+- **URL**: `https://xafalymslrgksysvstqe.supabase.co/functions/v1/scheduler-executor`
+- **Cron Expression**: `*/10 * * * *`
+- **HTTP Method**: `POST`
+- **Post Data**:
+  ```json
+  {"forceExecute": false}
+  ```
+- **HTTP Headers**:
+  ```
+  Content-Type: application/json
+  Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhhZmFseW1zbHJna3N5c3ZzdHFlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjE1NDQ2MTUsImV4cCI6MjA3NzEyMDYxNX0.CuSCldihlFqJ3dY2RNKx0sqdSiVIf_0z_Beiq0VMw1M
+  ```
 
-  const getPublishStatusText = (publishStatus: string) => {
-    return publishStatus === 'publish' ? '公開' : '下書き';
-  };
+### オプションC: GitHub Actions（完全無料）
 
-  const getPublishStatusColor = (publishStatus: string) => {
-    return publishStatus === 'publish' ? 'text-green-600' : 'text-blue-600';
-  };
+**特徴:**
+- GitHubリポジトリが必要
+- 完全無料
+- 最短5分間隔
 
-  return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center space-x-3">
-          <Calendar className="w-8 h-8 text-purple-600" />
-          <div>
-            <h2 className="text-2xl font-bold text-gray-900">キーワードベース自動投稿スケジューラー</h2>
-            <p className="text-gray-600">設定されたキーワードから毎回トレンド分析を行い、最適なタイトルで記事を自動生成・投稿します</p>
-          </div>
-        </div>
-        
-        <div className="flex items-center space-x-3">
-          <button
-            onClick={() => setDebugMode(!debugMode)}
-            className={`btn-secondary flex items-center space-x-2 ${debugMode ? 'bg-orange-100 text-orange-700' : ''}`}
-          >
-            <Bug className="w-4 h-4" />
-            <span>デバッグ</span>
-          </button>
-          
-          <button
-            onClick={handleRefreshStatus}
-            className="btn-secondary flex items-center space-x-2"
-          >
-            <RefreshCw className="w-4 h-4" />
-            <span>状態更新</span>
-          </button>
-        </div>
-      </div>
+**設定手順:**
 
-      {/* Debug Panel */}
-      {debugMode && (
-        <div className="bg-orange-50 border border-orange-200 rounded-xl p-6">
-          <h3 className="text-lg font-semibold text-orange-900 mb-4 flex items-center space-x-2">
-            <Bug className="w-5 h-5" />
-            <span>デバッグ情報</span>
-          </h3>
-          
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
-            <button
-              onClick={handleClearExecutionHistory}
-              className="btn-secondary flex items-center justify-center space-x-2 text-red-600 border-red-300 hover:bg-red-50"
-            >
-              <Trash2 className="w-4 h-4" />
-              <span>実行履歴クリア</span>
-            </button>
-            
-            <button
-              onClick={handleManualTrigger}
-              className="btn-secondary flex items-center justify-center space-x-2 text-blue-600 border-blue-300 hover:bg-blue-50"
-            >
-              <Zap className="w-4 h-4" />
-              <span>手動実行</span>
-            </button>
-            
-            <button
-              onClick={() => console.log('Detailed Status:', schedulerService.getDetailedStatus())}
-              className="btn-secondary flex items-center justify-center space-x-2"
-            >
-              <FileText className="w-4 h-4" />
-              <span>ログ出力</span>
-            </button>
-          </div>
-          
-          {detailedStatus && (
-            <div className="bg-white rounded-lg p-4 border border-orange-200">
-              <h4 className="font-semibold text-gray-900 mb-2">詳細ステータス</h4>
-              <pre className="text-xs text-gray-600 overflow-auto max-h-40">
-                {JSON.stringify(detailedStatus, null, 2)}
-              </pre>
-            </div>
-          )}
-        </div>
-      )}
+1. プロジェクトのGitHubリポジトリに移動
+2. `.github/workflows/scheduler.yml` を作成：
 
-      {/* Status Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-gray-600">スケジューラー状態</p>
-              <p className={`text-2xl font-bold ${isSchedulerActive ? 'text-green-600' : 'text-gray-400'}`}>
-                {isSchedulerActive ? 'アクティブ' : '停止中'}
-      {/* WordPress Configurations */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200">
-        <div className="p-6 border-b border-gray-200">
-          <h3 className="text-lg font-semibold text-gray-900">WordPress設定別スケジュール</h3>
-          <p className="text-gray-600 text-sm mt-1">各WordPress設定で個別にキーワードベース自動投稿を管理できます</p>
-        </div>
-        
-        <div className="p-6">
-          {(wordPressConfigs || []).length === 0 ? (
-            <div className="text-center py-8">
-              <Globe className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-              <p className="text-gray-500">WordPress設定がありません</p>
-              <p className="text-sm text-gray-400">WordPress設定ページで設定を追加してください</p>
-            </div>
-          ) : (
-            <div className="space-y-4">
-              {(wordPressConfigs || []).map((config) => {
-                const usedKeywordsCount = detailedStatus?.configs?.find((c: any) => c.id === config.id)?.usedKeywordsCount || 0;
-                const totalKeywordsCount = Array.isArray(config.scheduleSettings?.targetKeywords) 
-                  ? config.scheduleSettings.targetKeywords.length 
-                  : 0;
-                
-                return (
-                  <div
-                    key={config.id}
-                    className={`p-4 rounded-lg border-2 transition-all duration-200 ${
-                      config.scheduleSettings?.isActive
-                        ? 'border-green-500 bg-green-50'
-                        : 'border-gray-200 bg-white'
-                    }`}
-                  >
-      {/* Global Scheduler Control */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-          <h3 className="text-lg font-semibold text-gray-900 mb-6">グローバル制御</h3>
-          
-          <div className="space-y-4">
-            <div className="p-4 bg-gray-50 rounded-lg">
-              <h4 className="font-medium text-gray-900 mb-2">ブラウザベーススケジューラー</h4>
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-gray-700">AI設定</span>
-                  <span className={`text-sm ${aiConfig ? 'text-green-600' : 'text-red-600'}`}>
-                    {aiConfig ? '設定済み' : '未設定'}
-                  </span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-gray-700">WordPress設定</span>
-                  <span className={`text-sm ${(wordPressConfigs || []).length > 0 ? 'text-green-600' : 'text-red-600'}`}>
-                    {(wordPressConfigs || []).length}個
-                  </span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-gray-700">アクティブスケジュール</span>
-                  <span className={`text-sm ${activeConfigs.length > 0 ? 'text-green-600' : 'text-red-600'}`}>
-                    {activeConfigs.length}個
-                  </span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-gray-700">スケジューラー状態</span>
-                  <span className={`text-sm ${isSchedulerActive ? 'text-green-600' : 'text-gray-600'}`}>
-                    {isSchedulerActive ? '実行中' : '停止中'}
-                  </span>
-                </div>
-              </div>
-              <p className="text-xs text-gray-500 mt-2">
-                ※ ブラウザを閉じると停止します。常時稼働にはサーバーサイドスケジューラーを使用してください。
-              </p>
-            </div>
+```yaml
+name: AI Blog Scheduler
 
-            <div className="pt-4 border-t border-gray-200">
-              <div className="flex space-x-3">
-                {!isSchedulerActive ? (
-                  <button
-                    onClick={handleStartScheduler}
-                    className="btn-primary flex items-center space-x-2"
-                    disabled={!aiConfig || activeConfigs.length === 0}
-                  >
-                    <Play className="w-4 h-4" />
-                    <span>全スケジューラー開始</span>
-                  </button>
-                ) : (
-                  <button
-                    onClick={handleStopScheduler}
-                    className="bg-red-600 hover:bg-red-700 text-white font-medium px-6 py-2.5 rounded-lg transition-all duration-200"
-                  >
-                    <Pause className="w-4 h-4 mr-2" />
-                    全スケジューラー停止
-                  </button>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
+on:
+  schedule:
+    - cron: '*/10 * * * *'  # 10分ごとに実行
+  workflow_dispatch:  # 手動実行も可能
 
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-          <h3 className="text-lg font-semibold text-gray-900 mb-6">サーバーサイドスケジューラー制御</h3>
-          
-          <div className="space-y-4">
-            <div className="p-4 bg-blue-50 rounded-lg">
-              <h4 className="font-medium text-blue-900 mb-2">常時稼働システム</h4>
-              <div className="space-y-2 text-sm text-blue-800">
-                <p>• 管理画面にアクセスしなくても自動投稿が実行されます</p>
-                <p>• Netlify Functionsで24時間365日稼働</p>
-                <p>• 外部Cronサービスで正確な時刻に実行</p>
-                <p>• 高い可用性と安定性を実現</p>
-              </div>
-            </div>
+jobs:
+  trigger-scheduler:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call Supabase Edge Function
+        run: |
+          curl -X POST \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer ${{ secrets.SUPABASE_ANON_KEY }}" \
+            -d '{"forceExecute": false}' \
+            https://xafalymslrgksysvstqe.supabase.co/functions/v1/scheduler-executor
+```
 
-            <div className="p-4 bg-green-50 rounded-lg">
-              <h4 className="font-medium text-green-900 mb-2">設定の同期</h4>
-              <div className="space-y-2 text-sm text-green-800">
-                <p>• ブラウザで設定した内容がサーバーサイドでも動作</p>
-                <p>• WordPress設定とAI設定を環境変数で管理</p>
-                <p>• キーワードベース自動投稿に完全対応</p>
-                <p>• 多様性確保機能も含めて実装済み</p>
-              </div>
-            </div>
+3. リポジトリの Settings → Secrets → Actions で以下を追加：
+   - `SUPABASE_ANON_KEY`: `eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhhZmFseW1zbHJna3N5c3ZzdHFlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjE1NDQ2MTUsImV4cCI6MjA3NzEyMDYxNX0.CuSCldihlFqJ3dY2RNKx0sqdSiVIf_0z_Beiq0VMw1M`
 
-            <div className="p-4 bg-yellow-50 rounded-lg">
-              <h4 className="font-medium text-yellow-900 mb-2">監視とメンテナンス</h4>
-              <div className="space-y-2 text-sm text-yellow-800">
-                <p>• Netlify Functionsのログで実行状況を監視</p>
-                <p>• エラー発生時の自動通知設定可能</p>
-                <p>• 定期的な動作確認を推奨</p>
-                <p>• 設定変更時は環境変数の更新が必要</p>
-              </div>
-            </div>
-          </div>
-        </div>
+## 手順3: 動作確認
 
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-          <h3 className="text-lg font-semibold text-gray-900 mb-6 flex items-center space-x-2">
-            <Hash className="w-5 h-5 text-orange-500" />
-            <span>テスト機能（キーワードベース）</span>
-          </h3>
-          
-          <div className="space-y-4">
-            {/* Test Keyword Input */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                テスト用キーワード追加
-              </label>
-              <div className="flex space-x-2">
-                <input
-                  type="text"
-                  value={testKeywordInput}
-                  onChange={(e) => setTestKeywordInput(e.target.value)}
-                  onKeyPress={(e) => e.key === 'Enter' && handleAddTestKeyword()}
-                  placeholder="例：AI技術、AGA治療、自伝執筆"
-                  className="input-field flex-1"
-                />
-                <button
-                  onClick={handleAddTestKeyword}
-                  className="btn-secondary flex items-center space-x-2"
-                >
-                  <Hash className="w-4 h-4" />
-                  <span>追加</span>
-                </button>
-              </div>
-            </div>
+### 3-1. Edge Functionの手動テスト
 
-            {/* Test Keywords List */}
-            {testKeywords.length > 0 && (
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  テスト用キーワード一覧
-                </label>
-                <div className="max-h-40 overflow-y-auto border border-gray-200 rounded-lg p-3 space-y-2">
-                  {testKeywords.map((keyword, index) => (
-                    <div key={index} className="flex items-center justify-between p-2 bg-gray-50 rounded">
-                      <div className="flex items-center space-x-2">
-                        <Hash className="w-4 h-4 text-blue-500" />
-                        <span className="text-sm font-medium text-gray-900">{keyword}</span>
-                      </div>
-                      <button
-                        onClick={() => handleRemoveTestKeyword(keyword)}
-                        className="text-red-600 hover:text-red-800 p-1"
-                      >
-                        <X className="w-3 h-3" />
-                      </button>
-                    </div>
-                  ))}
-                </div>
-                
-                <p className="text-sm text-gray-500 mt-2">
-                  設定中: {testKeywords.length}個のキーワード
-                </p>
-              </div>
-            )}
+ブラウザの管理画面から：
 
-            {testKeywords.length === 0 && (
-              <div className="text-center py-8 border border-gray-200 rounded-lg bg-gray-50">
-                <Hash className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-                <p className="text-gray-500">テスト用キーワードを追加してください</p>
-              </div>
-            )}
+1. **スケジューラー**タブを開く
+2. **「サーバーサイドスケジューラーを今すぐ実行」**ボタンをクリック
+3. 成功メッセージが表示されることを確認
 
-            <button
-              onClick={handleTestGeneration}
-              disabled={testGeneration || !aiConfig || testKeywords.length === 0}
-              className="w-full btn-secondary flex items-center justify-center space-x-2 disabled:opacity-50"
-            >
-              {testGeneration ? (
-                <>
-                  <div className="w-4 h-4 border-2 border-gray-600 border-t-transparent rounded-full animate-spin"></div>
-                  <span>テスト中...</span>
-                </>
-              ) : (
-                <>
-                  <Zap className="w-4 h-4" />
-                  <span>テスト実行（実際にWordPressに投稿）</span>
-                </>
-              )}
-            </button>
+### 3-2. Cronの動作確認
 
-            <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
-              <h6 className="font-semibold text-blue-900 mb-2">テスト実行の流れ</h6>
-              <div className="text-xs text-blue-800 space-y-1">
-                <p>1. 設定されたキーワードから1つをランダム選択</p>
-                <p>2. 選択されたキーワードでトレンド分析を実行</p>
-                <p>3. 最適なタイトルを自動生成・選択</p>
-                <p>4. AI記事を生成してWordPressに投稿</p>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
+設定したCronサービスのダッシュボードで：
 
-      {/* Recent Activity */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200">
-        <div className="p-6 border-b border-gray-200">
-          <h3 className="text-lg font-semibold text-gray-900">最近のスケジュール実行</h3>
-        </div>
-        <div className="p-6">
-          {publishedToday.length === 0 ? (
-            <div className="text-center py-8">
-              <Clock className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-              <p className="text-gray-500">今日はまだ自動投稿が実行されていません</p>
-              <p className="text-sm text-gray-400">
-                {isSchedulerActive ? 'スケジュールに従って実行されます' : 'スケジューラーを開始してください'}
-              </p>
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {publishedToday.map((article) => (
-                <div key={article.id} className="flex items-center justify-between p-4 bg-green-50 rounded-lg">
-                  <div>
-                    <h4 className="font-medium text-gray-900">{article.title}</h4>
-                    <div className="flex items-center space-x-4 text-sm text-gray-600">
-                      <span>
-                        {article.publishedAt && new Date(article.publishedAt).toLocaleTimeString('ja-JP')} に自動投稿
-                      </span>
-                      <span className="px-2 py-1 bg-blue-100 text-blue-800 rounded-full text-xs">
-                        {article.category}
-                      </span>
-                      {article.trendData && (
-                        <span className="px-2 py-1 bg-purple-100 text-purple-800 rounded-full text-xs">
-                          トレンド活用
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                  <div className="flex items-center space-x-2">
-                    <div className="w-2 h-2 bg-green-500 rounded-full"></div>
-                    <span className="text-sm text-green-600">投稿済み</span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-};
+- 実行履歴を確認
+- HTTPステータスコード 200 が返っていることを確認
+- エラーがないことを確認
+
+### 3-3. Supabaseログの確認
+
+1. [Supabase Dashboard](https://supabase.com/dashboard) にログイン
+2. プロジェクトを選択
+3. **Edge Functions** → **scheduler-executor** → **Logs** を確認
+4. 実行ログに以下が表示されていることを確認：
+   - `Scheduler executor started at: [timestamp]`
+   - `Using AI config: [provider] [model]`
+   - `Found N active schedules`
+
+## 実行の仕組み
+
+### タイムライン
+
+```
+09:50 → Cron実行 → スケジュール時刻でないためスキップ
+10:00 → Cron実行 → スケジュール時刻（10:00）のため記事生成・投稿
+10:10 → Cron実行 → 既に実行済みのためスキップ
+10:20 → Cron実行 → 既に実行済みのためスキップ
+```
+
+### 実行条件
+
+Edge Functionは以下の条件で記事を生成・投稿します：
+
+1. **時刻チェック**: 現在時刻がスケジュール設定の時刻±5分以内
+2. **頻度チェック**: 前回実行から十分な時間が経過している
+   - 毎日: 23時間以上
+   - 毎週: 6.5日以上
+   - 隔週: 13日以上
+   - 毎月: 29日以上
+3. **設定チェック**: スケジュールが有効（isActive: true）
+4. **キーワードチェック**: 未使用のキーワードが残っている
+
+## トラブルシューティング
+
+### 記事が自動投稿されない
+
+**確認項目:**
+
+1. Cronが正しく実行されているか（Cronサービスのログを確認）
+2. Edge Functionにエラーがないか（Supabaseログを確認）
+3. スケジュール設定が有効になっているか（管理画面で確認）
+4. AI設定が正しく保存されているか
+5. WordPress設定が正しく保存されているか
+6. キーワードが設定されているか
+
+### Cronの実行頻度を変更したい
+
+Cron式を変更します：
+
+- `*/5 * * * *` → 5分ごと
+- `*/15 * * * *` → 15分ごと
+- `*/30 * * * *` → 30分ごと
+- `0 * * * *` → 1時間ごと（毎時0分）
+
+### 強制実行したい
+
+Cronサービスから手動実行するか、管理画面の「サーバーサイドスケジューラーを今すぐ実行」ボタンを使用します。
+
+または、リクエストボディを変更：
+
+```json
+{"forceExecute": true}
+```
+
+これにより時刻チェックをスキップして即座に実行されます。
+
+## セキュリティ注意事項
+
+- **APIキーの管理**: SupabaseのAnon Keyは公開されても問題ありませんが、Service Role Keyは絶対に公開しないでください
+- **Row Level Security**: Supabaseのテーブルには既にRLSが設定されているため安全です
+- **WordPress認証**: Application Passwordを使用しているため安全です
+
+## よくある質問
+
+**Q: Cronサービスは有料ですか？**
+A: cron-job.orgとGitHub Actionsは完全無料です。EasyCronは無料プランがあります。
+
+**Q: 複数のスケジュールを設定できますか？**
+A: はい、管理画面で複数のWordPress設定にそれぞれスケジュールを設定できます。
+
+**Q: キーワードを使い切ったらどうなりますか？**
+A: 自動的にリセットされ、最初のキーワードから再度使用されます。
+
+**Q: ブラウザベーススケジューラーとサーバーサイドスケジューラーは併用できますか？**
+A: できますが、重複実行を避けるため、どちらか一方のみの使用を推奨します。
+
+**Q: 実行履歴はどこで確認できますか？**
+A: Supabaseの `execution_history` テーブルに保存されています。管理画面からも確認できます。
+
+## サポート
+
+問題が解決しない場合は、以下の情報を確認してください：
+
+1. Supabase Edge Functionのログ
+2. Cronサービスの実行ログ
+3. ブラウザのコンソールログ
+4. WordPressのエラーログ
+
+---
+
+**設定完了後、24時間365日自動的に記事が生成・投稿されます！**
