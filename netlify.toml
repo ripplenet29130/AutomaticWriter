@@ -1,8 +1,10 @@
 [build]
-functions = "netlify/functions"
-publish = "dist"
-command = "npx vite build"
+  functions = "netlify/functions"
+  publish = "dist"
+  command = "npx vite build"
 
 [functions]
-node_bundler = "esbuild"
-timeout = 26
+  node_bundler = "esbuild"
+
+  [functions."*"]
+    timeout = 26
