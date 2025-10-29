@@ -9,6 +9,7 @@ import { Scheduler } from './components/Scheduler';
 import { WordPressConfigComponent } from './components/WordPressConfig';
 import { AIConfigComponent } from './components/AIConfig';
 import { SettingsComponent } from './components/Settings';
+import { ArticlesList } from './components/ArticlesList';
 import { useAppStore } from './store/useAppStore';
 
 function App() {
@@ -28,6 +29,8 @@ function App() {
           return <Dashboard />;
         case 'generator':
           return <AIGenerator />;
+        case 'articles':
+          return <ArticlesList />;
         case 'trends':
           return <TrendAnalysis />;
         case 'scheduler':

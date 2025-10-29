@@ -2,6 +2,7 @@ import React from 'react';
 import {
   LayoutDashboard,
   Bot,
+  FileText,
   TrendingUp,
   Calendar,
   Globe,
@@ -24,6 +25,12 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
       label: 'AI記事生成',
       icon: Bot,
       description: 'AIで記事を自動生成'
+    },
+    {
+      id: 'articles',
+      label: '記事一覧',
+      icon: FileText,
+      description: '生成済み記事の管理'
     },
     {
       id: 'trends',

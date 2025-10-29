@@ -6,13 +6,22 @@ export interface Article {
   keywords: string[];
   category: string;
   status: 'draft' | 'scheduled' | 'published' | 'failed';
-  scheduledAt?: Date;
-  publishedAt?: Date;
-  createdAt: Date;
+  tone?: 'professional' | 'casual' | 'technical' | 'friendly';
+  length?: 'short' | 'medium' | 'long';
+  aiProvider?: string;
+  aiModel?: string;
+  scheduledAt?: Date | string;
+  publishedAt?: Date | string;
+  generatedAt?: Date | string;
+  updatedAt?: Date | string;
+  createdAt?: Date | string;
+  wordPressPostId?: string;
+  wordPressConfigId?: string;
   wordPressId?: number;
   seoScore?: number;
   readingTime?: number;
-  trendData?: TrendAnalysisResult;
+  wordCount?: number;
+  trendData?: TrendAnalysisResult | any;
 }
 
 export interface WordPressConfig {
@@ -58,6 +67,7 @@ export interface GenerationPrompt {
   generateImages?: boolean;
   useTrendData?: boolean;
   trendAnalysis?: TrendAnalysisResult;
+  trendData?: TrendAnalysisResult;
   selectedTitleSuggestion?: TitleSuggestion;
 }
 

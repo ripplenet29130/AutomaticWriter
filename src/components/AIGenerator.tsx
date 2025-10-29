@@ -6,8 +6,10 @@ import { WordPressService } from '../services/wordPressService';
 import { GenerationPrompt, Article, ArticleTopic, TrendAnalysisResult } from '../types';
 import { articleTopics } from '../data/articleTopics';
 import toast from 'react-hot-toast';
-
-import { supabase } from '../services/supabaseClient'; // すでにあれば不要
+import { supabase } from '../services/supabaseClient';
+import { articlesService } from '../services/articlesService';
+import { customTopicsService } from '../services/customTopicsService';
+import { generationPromptsService } from '../services/generationPromptsService';
 
 // 最新AI設定をSupabaseから取得
 async function fetchActiveAIConfig() {
@@ -50,47 +52,83 @@ export const AIGenerator: React.FC = () => {
   const [isPublishing, setIsPublishing] = useState(false);
   const [selectedWordPressConfig, setSelectedWordPressConfig] = useState<string>('');
   const [publishStatus, setPublishStatus] = useState<'publish' | 'draft'>('publish');
+  const [recentTopics, setRecentTopics] = useState<any[]>([]);
+  const [favoriteTopics, setFavoriteTopics] = useState<any[]>([]);
+  const [showCustomTopicHistory, setShowCustomTopicHistory] = useState(false);
 
-  // 🔹 SupabaseからAI設定を自動取得
-useEffect(() => {
-  async function loadAIConfig() {
-    try {
-      const { data, error } = await supabase
-        .from('ai_configs')
-        .select('*')
-        .eq('is_active', true)
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .single();
+  useEffect(() => {
+    async function loadAIConfig() {
+      try {
+        const { data, error } = await supabase
+          .from('ai_configs')
+          .select('*')
+          .eq('is_active', true)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .single();
 
-      if (error) {
-        console.error('AI設定の取得に失敗しました:', error.message);
-        return;
+        if (error) {
+          console.error('AI設定の取得に失敗しました:', error.message);
+          return;
+        }
+
+        if (data) {
+          const mapped = {
+            provider: data.provider,
+            apiKey: data.api_key,
+            model: data.model,
+            temperature: data.temperature ?? 0.7,
+            maxTokens: data.max_tokens ?? 4000,
+          };
+
+          useAppStore.setState({ aiConfig: mapped });
+          console.log('✅ SupabaseからAI設定をロードしました:', mapped);
+        }
+      } catch (err) {
+        console.error('AI設定ロード中のエラー:', err);
       }
-
-      if (data) {
-        // Supabaseのカラム名 → AIServiceが使いやすい形にマッピング
-        const mapped = {
-          provider: data.provider,          // "gemini" | "openai" | "claude"
-          apiKey: data.api_key,             // ← api_key を apiKey に
-          model: data.model,                // 例: "gemini-2.5-flash"
-          temperature: data.temperature ?? 0.7,
-          maxTokens: data.max_tokens ?? 4000,
-        };
-
-        useAppStore.setState({ aiConfig: mapped });
-
-        console.log('✅ SupabaseからAI設定をロードしました:', mapped);
-      } else {
-        console.warn('AI設定が見つかりません。');
-      }
-    } catch (err) {
-      console.error('AI設定ロード中のエラー:', err);
     }
-  }
 
-  loadAIConfig();
-}, []);
+    loadAIConfig();
+    loadCustomTopics();
+  }, []);
+
+  const loadCustomTopics = async () => {
+    try {
+      const [recent, favorites] = await Promise.all([
+        customTopicsService.getAllTopics('recent', 10),
+        customTopicsService.getFavoriteTopics()
+      ]);
+      setRecentTopics(recent);
+      setFavoriteTopics(favorites);
+    } catch (error) {
+      console.error('カスタムトピックの読み込みエラー:', error);
+    }
+  };
+
+  const handleSelectCustomTopic = async (topic: any) => {
+    setPrompt({
+      topic: topic.topicName,
+      keywords: topic.keywords || [],
+      tone: topic.tone || 'professional',
+      length: topic.length || 'long',
+      includeIntroduction: true,
+      includeConclusion: true,
+      includeSources: true,
+      useTrendData: false
+    });
+    setShowTopicSelection(false);
+    setShowCustomTopicHistory(false);
+
+    await customTopicsService.incrementUseCount(topic.id);
+    await loadCustomTopics();
+    toast.success(`「${topic.topicName}」を選択しました`);
+  };
+
+  const handleToggleFavorite = async (topicId: string) => {
+    await customTopicsService.toggleFavorite(topicId);
+    await loadCustomTopics();
+  };
 
 
   
@@ -216,42 +254,72 @@ const handleGenerate = async () => {
 };
 
   
-  const handleSaveArticle = () => {
+  const handleSaveArticle = async () => {
     if (!generatedArticle) return;
 
-    const article: Article = {
-      id: `generated-${Date.now()}`,
-      title: generatedArticle.title,
-      content: generatedArticle.content,
-      excerpt: generatedArticle.excerpt,
-      keywords: generatedArticle.keywords,
-      category: selectedTopic?.category || trendData?.keyword || 'AI技術',
-      status: 'draft',
-      createdAt: new Date(),
-      seoScore: generatedArticle.seoScore,
-      readingTime: generatedArticle.readingTime,
-      trendData: trendData || undefined
-    };
+    try {
+      toast.loading('記事を保存中...');
 
-    addArticle(article);
-    toast.success('記事を保存しました');
-    setGeneratedArticle(null);
-    setIsPreview(false);
-    setShowTopicSelection(true);
-    setSelectedTopic(null);
-    setTrendData(null);
-    
-    // Reset form
-    setPrompt({
-      topic: '',
-      keywords: [],
-      tone: 'professional',
-      length: 'long',
-      includeIntroduction: true,
-      includeConclusion: true,
-      includeSources: true,
-      useTrendData: false
-    });
+      const articleData: Partial<Article> = {
+        title: generatedArticle.title,
+        content: generatedArticle.content,
+        excerpt: generatedArticle.excerpt || '',
+        keywords: generatedArticle.keywords || prompt.keywords,
+        category: selectedTopic?.category || trendData?.keyword || 'AI技術',
+        status: 'draft',
+        tone: prompt.tone,
+        length: prompt.length,
+        aiProvider: aiConfig?.provider,
+        aiModel: aiConfig?.model,
+        seoScore: generatedArticle.seoScore || 0,
+        readingTime: generatedArticle.readingTime || 0,
+        wordCount: generatedArticle.content?.length || 0,
+        trendData: trendData || {}
+      };
+
+      const savedArticle = await articlesService.createArticle(articleData);
+
+      if (savedArticle) {
+        addArticle(savedArticle);
+
+        await generationPromptsService.createPrompt(savedArticle.id, {
+          ...prompt,
+          trendData: trendData || undefined
+        });
+
+        if (prompt.topic && !selectedTopic) {
+          await customTopicsService.findOrCreateTopic(prompt.topic, {
+            keywords: prompt.keywords,
+            tone: prompt.tone,
+            length: prompt.length,
+            category: articleData.category
+          });
+        }
+
+        toast.success('記事を保存しました');
+        setGeneratedArticle(null);
+        setIsPreview(false);
+        setShowTopicSelection(true);
+        setSelectedTopic(null);
+        setTrendData(null);
+
+        setPrompt({
+          topic: '',
+          keywords: [],
+          tone: 'professional',
+          length: 'long',
+          includeIntroduction: true,
+          includeConclusion: true,
+          includeSources: true,
+          useTrendData: false
+        });
+      } else {
+        toast.error('記事の保存に失敗しました');
+      }
+    } catch (error) {
+      console.error('記事保存エラー:', error);
+      toast.error('記事の保存でエラーが発生しました');
+    }
   };
 
   const handlePublishToWordPress = async () => {
@@ -269,22 +337,48 @@ const handleGenerate = async () => {
     try {
       setIsPublishing(true);
       
-      // First save the article to local storage
-      const article: Article = {
-        id: `generated-${Date.now()}`,
+      const articleData: Partial<Article> = {
         title: generatedArticle.title,
         content: generatedArticle.content,
-        excerpt: generatedArticle.excerpt,
-        keywords: generatedArticle.keywords,
+        excerpt: generatedArticle.excerpt || '',
+        keywords: generatedArticle.keywords || prompt.keywords,
         category: selectedTopic?.category || trendData?.keyword || 'AI技術',
         status: 'draft',
-        createdAt: new Date(),
-        seoScore: generatedArticle.seoScore,
-        readingTime: generatedArticle.readingTime,
-        trendData: trendData || undefined
+        tone: prompt.tone,
+        length: prompt.length,
+        aiProvider: aiConfig?.provider,
+        aiModel: aiConfig?.model,
+        seoScore: generatedArticle.seoScore || 0,
+        readingTime: generatedArticle.readingTime || 0,
+        wordCount: generatedArticle.content?.length || 0,
+        trendData: trendData || {},
+        wordPressConfigId: selectedWordPressConfig
       };
 
-      addArticle(article);
+      const savedArticle = await articlesService.createArticle(articleData);
+
+      if (!savedArticle) {
+        toast.error('記事の保存に失敗しました');
+        return;
+      }
+
+      addArticle(savedArticle);
+
+      await generationPromptsService.createPrompt(savedArticle.id, {
+        ...prompt,
+        trendData: trendData || undefined
+      });
+
+      if (prompt.topic && !selectedTopic) {
+        await customTopicsService.findOrCreateTopic(prompt.topic, {
+          keywords: prompt.keywords,
+          tone: prompt.tone,
+          length: prompt.length,
+          category: articleData.category
+        });
+      }
+
+      const article = savedArticle;
 
       // Publish to WordPress
       const wordPressService = new WordPressService(wordPressConfig);
@@ -297,13 +391,15 @@ const handleGenerate = async () => {
         const finalStatus = publishStatus === 'publish' ? 'published' : 'draft';
         const updateData: any = {
           status: finalStatus,
+          wordPressPostId: publishResult.wordPressId?.toString(),
           wordPressId: publishResult.wordPressId
         };
-        
+
         if (publishStatus === 'publish') {
-          updateData.publishedAt = new Date();
+          updateData.publishedAt = new Date().toISOString();
         }
-        
+
+        await articlesService.updateArticle(article.id, updateData);
         updateArticle(article.id, updateData);
         
         const successMessage = publishStatus === 'publish' 
@@ -587,9 +683,8 @@ const handleGenerate = async () => {
           </div>
         </div>
 
-        {/* Search and Filter */}
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-          <div className="flex flex-col md:flex-row gap-4">
+          <div className="flex flex-col md:flex-row gap-4 mb-4">
             <div className="flex-1">
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
@@ -615,7 +710,87 @@ const handleGenerate = async () => {
                 ))}
               </select>
             </div>
+            <button
+              onClick={() => setShowCustomTopicHistory(!showCustomTopicHistory)}
+              className="btn-secondary flex items-center gap-2"
+            >
+              <FileText className="w-5 h-5" />
+              履歴から選択
+            </button>
           </div>
+
+          {showCustomTopicHistory && (recentTopics.length > 0 || favoriteTopics.length > 0) && (
+            <div className="border-t pt-4 space-y-4">
+              {favoriteTopics.length > 0 && (
+                <div>
+                  <h3 className="text-sm font-semibold text-gray-700 mb-2 flex items-center gap-2">
+                    <span className="text-yellow-500">★</span>
+                    お気に入り
+                  </h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                    {favoriteTopics.map(topic => (
+                      <div
+                        key={topic.id}
+                        className="flex items-center justify-between p-3 bg-yellow-50 border border-yellow-200 rounded-lg hover:bg-yellow-100 transition-colors"
+                      >
+                        <button
+                          onClick={() => handleSelectCustomTopic(topic)}
+                          className="flex-1 text-left"
+                        >
+                          <div className="font-medium text-gray-900">{topic.topicName}</div>
+                          <div className="text-xs text-gray-600 mt-1">
+                            {topic.useCount}回使用 ・ {topic.keywords.length}キーワード
+                          </div>
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleToggleFavorite(topic.id);
+                          }}
+                          className="ml-2 text-yellow-500 hover:text-yellow-600"
+                        >
+                          ★
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {recentTopics.length > 0 && (
+                <div>
+                  <h3 className="text-sm font-semibold text-gray-700 mb-2">最近使用したトピック</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
+                    {recentTopics.map(topic => (
+                      <div
+                        key={topic.id}
+                        className="flex items-center justify-between p-3 bg-gray-50 border border-gray-200 rounded-lg hover:bg-gray-100 transition-colors"
+                      >
+                        <button
+                          onClick={() => handleSelectCustomTopic(topic)}
+                          className="flex-1 text-left"
+                        >
+                          <div className="font-medium text-gray-900 text-sm">{topic.topicName}</div>
+                          <div className="text-xs text-gray-600 mt-1">
+                            {topic.useCount}回使用
+                          </div>
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleToggleFavorite(topic.id);
+                          }}
+                          className={`ml-2 ${topic.isFavorite ? 'text-yellow-500' : 'text-gray-300'} hover:text-yellow-500`}
+                        >
+                          ★
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Topic Grid */}

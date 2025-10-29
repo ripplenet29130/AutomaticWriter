@@ -67,7 +67,11 @@ export const Dashboard: React.FC = () => {
   }, [articles]);
 
   const recentArticles = (articles || [])
-    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+    .sort((a, b) => {
+      const dateA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+      const dateB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+      return dateB - dateA;
+    })
     .slice(0, 5);
 
   const getStatusColor = (status: string) => {
@@ -231,7 +235,9 @@ export const Dashboard: React.FC = () => {
                   <div className="flex-1">
                     <h4 className="font-medium text-gray-900 mb-1">{article.title}</h4>
                     <div className="flex items-center space-x-4 text-sm text-gray-500">
-                      <span>{format(new Date(article.createdAt), 'yyyy/MM/dd HH:mm', { locale: ja })}</span>
+                      {article.createdAt && (
+                        <span>{format(new Date(article.createdAt), 'yyyy/MM/dd HH:mm', { locale: ja })}</span>
+                      )}
                       <span>{(article.keywords || []).slice(0, 3).join(', ')}</span>
                       {article.seoScore && (
                         <span>SEO: {article.seoScore}点</span>

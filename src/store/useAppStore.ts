@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { Article, WordPressConfig, AIConfig } from '../types';
 import { supabaseSchedulerService } from '../services/supabaseSchedulerService';
+import { articlesService } from '../services/articlesService';
 
 interface AppState {
   articles: Article[];
@@ -23,6 +24,7 @@ interface AppState {
   setIsGenerating: (generating: boolean) => void;
   loadFromSupabase: () => Promise<void>;
   syncToSupabase: () => Promise<void>;
+  loadArticlesFromSupabase: () => Promise<void>;
 }
 
 export const useAppStore = create<AppState>()(
@@ -45,29 +47,39 @@ export const useAppStore = create<AppState>()(
       
       addArticle: (article) => {
         try {
-          set((state) => ({ articles: [article, ...state.articles] }));
+          set((state) => {
+            const exists = state.articles.some(a => a.id === article.id);
+            if (exists) {
+              return {
+                articles: state.articles.map(a => a.id === article.id ? article : a)
+              };
+            }
+            return { articles: [article, ...state.articles] };
+          });
         } catch (error) {
           console.error('Error adding article:', error);
         }
       },
       
-      updateArticle: (id, updates) => {
+      updateArticle: async (id, updates) => {
         try {
           set((state) => ({
             articles: state.articles.map((article) =>
               article.id === id ? { ...article, ...updates } : article
             ),
           }));
+          await articlesService.updateArticle(id, updates);
         } catch (error) {
           console.error('Error updating article:', error);
         }
       },
       
-      deleteArticle: (id) => {
+      deleteArticle: async (id) => {
         try {
           set((state) => ({
             articles: state.articles.filter((article) => article.id !== id),
           }));
+          await articlesService.deleteArticle(id);
         } catch (error) {
           console.error('Error deleting article:', error);
         }
@@ -129,18 +141,29 @@ export const useAppStore = create<AppState>()(
       loadFromSupabase: async () => {
         try {
           set({ isLoading: true });
-          const [wpConfigs, aiConfig] = await Promise.all([
+          const [wpConfigs, aiConfig, articles] = await Promise.all([
             supabaseSchedulerService.loadWordPressConfigs(),
             supabaseSchedulerService.loadAIConfig(),
+            articlesService.getAllArticles()
           ]);
           set({
             wordPressConfigs: wpConfigs,
             aiConfig: aiConfig,
+            articles: articles,
             isLoading: false
           });
         } catch (error) {
           console.error('Error loading from Supabase:', error);
           set({ isLoading: false });
+        }
+      },
+
+      loadArticlesFromSupabase: async () => {
+        try {
+          const articles = await articlesService.getAllArticles();
+          set({ articles });
+        } catch (error) {
+          console.error('Error loading articles from Supabase:', error);
         }
       },
 
@@ -156,7 +179,7 @@ export const useAppStore = create<AppState>()(
         } catch (error) {
           console.error('Error syncing to Supabase:', error);
         }
-      },
+      }
     }),
     {
       name: 'ai-wordpress-storage',
