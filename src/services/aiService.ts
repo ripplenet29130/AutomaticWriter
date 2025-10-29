@@ -250,7 +250,8 @@ ${sectionText}
 }
 
 // === AI設定を保存する関数 ===
-import { supabase } from "@/config/supabaseClient";
+import { supabase } from "../config/supabaseClient";
+
  // すでにある場合は重複しないよう注意
 
 export async function saveAIConfig(config: any) {
