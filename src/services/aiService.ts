@@ -283,3 +283,17 @@ export async function saveAIConfig(config: {
   if (error) throw new Error(`AI設定の保存に失敗しました: ${error.message}`);
   return data;
 }
+
+// 最新のAI設定を取得する
+export async function getActiveAIConfig() {
+  const { data, error } = await supabase
+    .from("ai_configs")
+    .select("*")
+    .eq("is_active", true)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .single();
+
+  if (error) throw new Error("AI設定の取得に失敗しました: " + error.message);
+  return data;
+}
