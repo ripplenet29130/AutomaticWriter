@@ -1,13 +1,16 @@
 export const handler = async (event: any) => {
   try {
     const body = JSON.parse(event.body || '{}');
-    const { prompt, apiKey, model, temperature, max_tokens } = body;
+    const { prompt, apiKey, model, temperature, maxTokens } = body;
 
-    console.log("🟢 Gemini Proxy 受信データ:", { prompt, apiKey, model, temperature, max_tokens });
+    console.log("🟢 Gemini Proxy 受信データ:", { prompt, apiKey, model, temperature, maxTokens });
 
     if (!apiKey) {
       console.error("❌ APIキーがありません");
-      return new Response(JSON.stringify({ error: "API key missing" }), { status: 400 });
+      return {
+        statusCode: 400,
+        body: JSON.stringify({ error: "API key missing" })
+      };
     }
 
     const modelName = model || "gemini-2.5-flash";
@@ -19,7 +22,7 @@ export const handler = async (event: any) => {
       contents: [{ parts: [{ text: prompt }] }],
       generationConfig: {
         temperature: temperature ?? 0.7,
-        maxOutputTokens: max_tokens ?? 4000,
+        maxOutputTokens: maxTokens ?? 4000,
       },
     };
 
@@ -37,13 +40,22 @@ export const handler = async (event: any) => {
 
     if (!resp.ok) {
       console.error("❌ Gemini API Error:", data);
-      return new Response(JSON.stringify({ error: "Gemini API error", details: data }), { status: 500 });
+      return {
+        statusCode: 502,
+        body: JSON.stringify({ error: "Gemini API error", details: data })
+      };
     }
 
-    return new Response(JSON.stringify(data), { status: 200 });
+    return {
+      statusCode: 200,
+      body: JSON.stringify(data)
+    };
 
   } catch (err: any) {
     console.error("🔥 Gemini Proxy internal error:", err);
-    return new Response(JSON.stringify({ error: err.message }), { status: 500 });
+    return {
+      statusCode: 500,
+      body: JSON.stringify({ error: err.message })
+    };
   }
 };
