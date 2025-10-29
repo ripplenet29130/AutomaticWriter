@@ -31,7 +31,7 @@ private async loadActiveConfig() {
     apiKey: data.api_key,
     model: data.model,
     temperature: data.temperature ?? 0.7,
-    max_tokens: data.max_tokens ?? 4000,
+    maxTokens: data.max_tokens ?? 4000,
   };
 
   console.log("✅ AI設定をロードしました:", this.config);
@@ -138,19 +138,18 @@ ${sectionText}
 
   // === Gemini ===
   private async callGemini(prompt: GenerationPrompt) {
-    const response = await 
-      console.log("📤 buildPrompt送信内容:", this.buildPrompt(prompt));
+    console.log("📤 buildPrompt送信内容:", this.buildPrompt(prompt));
 
-      fetch("/.netlify/functions/gemini-proxy", {
+    const response = await fetch("/.netlify/functions/gemini-proxy", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-  prompt: this.buildPrompt(prompt),
-  apiKey: this.config.apiKey,          // ← api_key ではなく apiKey
-  model: this.config.model,
-  temperature: this.config.temperature,
-  max_tokens: this.config.max_tokens,  // ここは config 側に合わせる
-}),
+        prompt: this.buildPrompt(prompt),
+        apiKey: this.config!.apiKey,
+        model: this.config!.model,
+        temperature: this.config!.temperature,
+        maxTokens: this.config!.maxTokens,
+      }),
     });
 
     if (!response.ok) throw new Error(`Gemini APIエラー: ${response.status}`);
@@ -169,13 +168,13 @@ ${sectionText}
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "x-api-key": this.config?.api_key || "",
+        "x-api-key": this.config?.apiKey || "",
         "anthropic-version": "2023-06-01",
       },
       body: JSON.stringify({
         model: this.config?.model,
         temperature: this.config?.temperature,
-        max_tokens: this.config?.max_tokens,
+        max_tokens: this.config?.maxTokens,
         messages: [{ role: "user", content: this.buildPrompt(prompt) }],
       }),
     });
@@ -196,12 +195,12 @@ ${sectionText}
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${this.config?.api_key}`,
+        Authorization: `Bearer ${this.config?.apiKey}`,
       },
       body: JSON.stringify({
         model: this.config?.model,
         temperature: this.config?.temperature,
-        max_tokens: this.config?.max_tokens,
+        max_tokens: this.config?.maxTokens,
         messages: [
           { role: "system", content: "You are a professional Japanese SEO writer." },
           { role: "user", content: this.buildPrompt(prompt) },
@@ -250,10 +249,6 @@ ${sectionText}
 }
 
 // === AI設定を保存する関数 ===
-import { supabase } from "../config/supabaseClient";
-
- // すでにある場合は重複しないよう注意
-
 export async function saveAIConfig(config: any) {
   const { error } = await supabase
     .from("ai_configs")

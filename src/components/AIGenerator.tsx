@@ -75,7 +75,7 @@ useEffect(() => {
           apiKey: data.api_key,             // ← api_key を apiKey に
           model: data.model,                // 例: "gemini-2.5-flash"
           temperature: data.temperature ?? 0.7,
-          max_tokens: data.max_tokens ?? 4000,
+          maxTokens: data.max_tokens ?? 4000,
         };
 
         useAppStore.setState({ aiConfig: mapped });
@@ -182,7 +182,7 @@ const handleGenerate = async () => {
 
   try {
     setIsGenerating(true);
-    const aiService = new AIService(aiConfig);
+    const aiService = new AIService();
 
     console.log("🔍 渡されるaiConfig:", aiConfig);
 

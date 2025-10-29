@@ -503,22 +503,3 @@ export const AIConfigComponent: React.FC = () => {
     </div>
   );
 };
-
-import { saveAIConfig } from "../services/aiService";
-
-const handleSave = async () => {
-  try {
-    await saveAIConfig({
-      provider,
-      api_key: apiKey,
-      model,
-      temperature,
-      max_tokens: maxTokens,
-      image_enabled: imageEnabled,
-      image_provider: imageProvider,
-    });
-    toast.success("AI設定を保存しました");
-  } catch (err: any) {
-    toast.error(err.message);
-  }
-};
