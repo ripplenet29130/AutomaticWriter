@@ -265,6 +265,10 @@ export async function saveAIConfig(config: {
   image_enabled: boolean;
   image_provider: string;
 }) {
+  // 既存の is_active = true を無効化
+  await supabase.from("ai_configs").update({ is_active: false }).eq("is_active", true);
+
+  // 新しい設定を保存
   const { data, error } = await supabase
     .from("ai_configs")
     .insert({
