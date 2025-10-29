@@ -136,12 +136,13 @@ ${sectionText}
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        prompt: this.buildPrompt(prompt),
-        apiKey: this.config?.api_key,
-        model: this.config?.model,
-        temperature: this.config?.temperature,
-        max_tokens: this.config?.max_tokens,
-      }),
+  prompt: this.buildPrompt(prompt),
+  apiKey: this.config.apiKey,          // ← api_key ではなく apiKey
+  model: this.config.model,
+  temperature: this.config.temperature,
+  max_tokens: this.config.max_tokens,  // ここは config 側に合わせる
+}),
+
     });
 
     if (!response.ok) throw new Error(`Gemini APIエラー: ${response.status}`);
