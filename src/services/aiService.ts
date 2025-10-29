@@ -7,26 +7,35 @@ export class AIService {
   constructor() {}
 
   // === 最新のAI設定をSupabaseから取得 ===
-  private async loadActiveConfig() {
-    const { data, error } = await supabase
-      .from("ai_configs")
-      .select("*")
-      .eq("is_active", true)
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .single();
+private async loadActiveConfig() {
+  const { data, error } = await supabase
+    .from("ai_configs")
+    .select("*")
+    .eq("is_active", true)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .single();
 
-    if (error) {
-      console.error("AI設定取得エラー:", error);
-      throw new Error("AI設定の取得に失敗しました。AI設定ページで再設定してください。");
-    }
-
-    if (!data) {
-      throw new Error("AI設定が見つかりません。AI設定ページで設定してください。");
-    }
-
-    this.config = data;
+  if (error) {
+    console.error("AI設定の取得に失敗しました:", error.message);
+    throw new Error("AI設定の取得に失敗しました");
   }
+
+  if (!data) {
+    throw new Error("有効なAI設定が見つかりません");
+  }
+
+  // ✅ Supabaseのカラム名(api_key)をクラス内部の形式(apiKey)に変換してセット
+  this.config = {
+    provider: data.provider,
+    apiKey: data.api_key,
+    model: data.model,
+    temperature: data.temperature ?? 0.7,
+    max_tokens: data.max_tokens ?? 4000,
+  };
+
+  console.log("✅ AI設定をロードしました:", this.config);
+}
 
   // === 記事生成（メイン処理） ===
   async generateArticle(prompt: GenerationPrompt) {
