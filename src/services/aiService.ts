@@ -1,303 +1,238 @@
-import { AIConfig, GenerationPrompt } from '../types';
+import { AIConfig, GenerationPrompt } from "../types";
+import { supabase } from "./supabaseClient";
 
 export class AIService {
-  private config: AIConfig;
+  private config: AIConfig | null = null;
 
-  constructor(config: AIConfig) {
-    this.config = config;
+  constructor() {}
+
+  // === 最新のAI設定をSupabaseから取得 ===
+  private async loadActiveConfig() {
+    const { data, error } = await supabase
+      .from("ai_configs")
+      .select("*")
+      .eq("is_active", true)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .single();
+
+    if (error) {
+      console.error("AI設定取得エラー:", error);
+      throw new Error("AI設定の取得に失敗しました。AI設定ページで再設定してください。");
+    }
+
+    if (!data) {
+      throw new Error("AI設定が見つかりません。AI設定ページで設定してください。");
+    }
+
+    this.config = data;
   }
 
+  // === 記事生成（メイン処理） ===
   async generateArticle(prompt: GenerationPrompt) {
     try {
-      if (!this.config.apiKey) {
-        throw new Error('API key is not configured');
+      // 設定をロード
+      if (!this.config) await this.loadActiveConfig();
+
+      // 必須項目のチェック
+      if (!this.config?.provider) throw new Error("AIプロバイダが設定されていません。AI設定ページで設定してください。");
+      if (!this.config?.api_key) throw new Error("APIキーが設定されていません。AI設定ページで設定してください。");
+      if (!this.config?.model) throw new Error("モデルが設定されていません。AI設定ページでモデルを選択してください。");
+
+      let result;
+      switch (this.config.provider) {
+        case "openai":
+          result = await this.callOpenAI(prompt);
+          break;
+        case "gemini":
+          result = await this.callGemini(prompt);
+          break;
+        case "claude":
+          result = await this.callClaude(prompt);
+          break;
+        default:
+          throw new Error(`未対応のAIプロバイダです: ${this.config.provider}`);
       }
 
-      let content = '';
-      let title = '';
-
-      if (this.config.provider === 'openai') {
-        const response = await this.callOpenAI(prompt);
-        content = response.content;
-        title = response.title;
-      } else if (this.config.provider === 'gemini') {
-        const response = await this.callGemini(prompt);
-        content = response.content;
-        title = response.title;
-      } else if (this.config.provider === 'claude') {
-        const response = await this.callClaude(prompt);
-        content = response.content;
-        title = response.title;
-      } else {
-        throw new Error(`Unsupported AI provider: ${this.config.provider}`);
-      }
-
+      const { title, content } = result;
       const excerpt = this.generateExcerpt(content);
       const keywords = this.extractKeywords(content, prompt.topic);
       const seoScore = this.calculateSEOScore(title, content, keywords);
       const readingTime = this.calculateReadingTime(content);
 
-      return {
-        title,
-        content,
-        excerpt,
-        keywords,
-        seoScore,
-        readingTime
-      };
+      return { title, content, excerpt, keywords, seoScore, readingTime };
     } catch (error) {
-      console.error('Article generation error:', error);
-      return this.generateMockArticle(prompt);
+      console.error("記事生成エラー:", error);
+      throw error;
     }
   }
 
-  // ===== OpenAI =====
-  private async callOpenAI(prompt: GenerationPrompt) {
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${this.config.apiKey}`
-      },
-      body: JSON.stringify({
-        model: this.config.model || 'gpt-3.5-turbo',
-        messages: [
-          {
-            role: 'system',
-            content: 'You are a professional blog writer. Write engaging, informative articles in Japanese.'
-          },
-          {
-            role: 'user',
-            content: `以下のトピックについて、SEOに最適化された日本語のブログ記事を書いてください。
+  // === プロンプト生成 ===
+  private buildPrompt(prompt: GenerationPrompt): string {
+    // 文字数指定
+    const lengthText =
+      prompt.length === "short"
+        ? "約1,000〜2,000文字"
+        : prompt.length === "medium"
+        ? "約2,000〜4,000文字"
+        : prompt.length === "long"
+        ? "約4,000〜6,000文字"
+        : "指定なし";
 
-トピック: ${prompt.topic}
-${prompt.keywords ? `キーワード: ${prompt.keywords.join(', ')}` : ''}
-${prompt.tone ? `トーン: ${prompt.tone}` : ''}
-${prompt.length ? `文字数: 約${prompt.length}文字` : ''}
+    // トーン
+    const toneText = (() => {
+      switch (prompt.tone) {
+        case "professional":
+          return "専門的でフォーマルな文体で書いてください。";
+        case "casual":
+          return "親しみやすくカジュアルな文体で書いてください。";
+        case "technical":
+          return "技術的で正確な文体で書いてください。";
+        case "friendly":
+          return "読者に語りかけるようなフレンドリーな文体で書いてください。";
+        default:
+          return "";
+      }
+    })();
 
-記事の構成:
-1. 魅力的なタイトル
-2. 導入部分
-3. 本文（見出しを使って構造化）
-4. まとめ
+    // セクション指定
+    const sections = [];
+    if (prompt.includeIntroduction) sections.push("導入部分（冒頭）");
+    if (prompt.includeConclusion) sections.push("まとめ（結論）");
+    if (prompt.includeSources) sections.push("参考文献や引用元リスト");
+    const sectionText = sections.length ? `${sections.join("、")}を含めてください。` : "";
 
-タイトルと本文を分けて出力してください。`
-          }
-        ],
-        max_tokens: 2000,
-        temperature: 0.7
-      })
-    });
+    return `
+以下の条件に基づいて、日本語でSEO最適化されたブログ記事を書いてください。
 
-    if (!response.ok) {
-      throw new Error(`OpenAI API error: ${response.status}`);
-    }
+【トピック】
+${prompt.topic}
 
-    const data = await response.json();
-    const fullContent = data.choices[0].message.content;
-    const lines = fullContent.split('\n');
-    const title = lines[0].replace(/^#+\s*/, '').trim();
-    const content = lines.slice(1).join('\n').trim();
+【キーワード】
+${prompt.keywords?.join("、") || "（指定なし）"}
 
-    return { title, content };
-  }
+【トーン】
+${toneText}
 
-  // ===== Gemini（Proxy経由） =====
-  private async callGemini(prompt: GenerationPrompt) {
-    // Gemini APIはCORS制限があるため、バックエンドプロキシを経由
-    const response = await fetch('/.netlify/functions/gemini-proxy', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        prompt: `
-以下のトピックについて、SEOに最適化された日本語のブログ記事を書いてください。
+【文字数】
+${lengthText}
 
-トピック: ${prompt.topic}
-${prompt.keywords ? `キーワード: ${prompt.keywords.join(', ')}` : ''}
-${prompt.tone ? `トーン: ${prompt.tone}` : ''}
-${prompt.length ? `文字数: 約${prompt.length}文字` : ''}
+【構成】
+${sectionText}
 
-記事の構成:
-1. 魅力的なタイトル
-2. 導入部分
-3. 本文（見出しを使って構造化）
-4. まとめ
-
-タイトルと本文を分けて出力してください。`,
-        apiKey: this.config.apiKey,
-        model: 'models/gemini-1.5-pro'
-      })
-    });
-
-    if (!response.ok) {
-      throw new Error(`Gemini Proxy API error: ${response.status}`);
-    }
-
-    const data = await response.json();
-    const fullContent = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
-
-    const lines = fullContent.split('\n');
-    const title = lines[0]?.replace(/^#+\s*/, '')?.trim() || '無題';
-    const content = lines.slice(1).join('\n').trim();
-
-    return { title, content };
-  }
-
-  // ===== Claude =====
-  private async callClaude(prompt: GenerationPrompt) {
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': this.config.apiKey,
-        'anthropic-version': '2023-06-01'
-      },
-      body: JSON.stringify({
-        model: this.config.model || 'claude-3-sonnet-20240229',
-        max_tokens: 2000,
-        messages: [{
-          role: 'user',
-          content: `以下のトピックについて、SEOに最適化された日本語のブログ記事を書いてください。
-
-トピック: ${prompt.topic}
-${prompt.keywords ? `キーワード: ${prompt.keywords.join(', ')}` : ''}
-${prompt.tone ? `トーン: ${prompt.tone}` : ''}
-${prompt.length ? `文字数: 約${prompt.length}文字` : ''}
-
-記事の構成:
-1. 魅力的なタイトル
-2. 導入部分
-3. 本文（見出しを使って構造化）
-4. まとめ
-
-タイトルと本文を分けて出力してください。`
-        }]
-      })
-    });
-
-    if (!response.ok) {
-      throw new Error(`Claude API error: ${response.status}`);
-    }
-
-    const data = await response.json();
-    const fullContent = data.content[0].text;
-    const lines = fullContent.split('\n');
-    const title = lines[0].replace(/^#+\s*/, '').trim();
-    const content = lines.slice(1).join('\n').trim();
-
-    return { title, content };
-  }
-
-  // ===== Fallback =====
-  private generateMockArticle(prompt: GenerationPrompt) {
-    const title = `${prompt.topic}について知っておくべき重要なポイント`;
-    const content = `
-# ${title}
-
-## はじめに
-
-${prompt.topic}は現代社会において重要な話題となっています。この記事では、${prompt.topic}について詳しく解説し、実践的な情報をお届けします。
+【指示】
+- 見出しには「##」を使用して構造化してください。
+- 内容をわかりやすく、段落を分けて書いてください。
+- タイトルと本文を分けて出力してください。
 `;
-    const excerpt = this.generateExcerpt(content);
-    const keywords = this.extractKeywords(content, prompt.topic);
-    const seoScore = this.calculateSEOScore(title, content, keywords);
-    const readingTime = this.calculateReadingTime(content);
-
-    return { title, content, excerpt, keywords, seoScore, readingTime };
   }
 
-  // ===== Utility =====
+  // === Gemini ===
+  private async callGemini(prompt: GenerationPrompt) {
+    const response = await fetch("/.netlify/functions/gemini-proxy", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        prompt: this.buildPrompt(prompt),
+        apiKey: this.config?.api_key,
+        model: this.config?.model,
+        temperature: this.config?.temperature,
+        max_tokens: this.config?.max_tokens,
+      }),
+    });
+
+    if (!response.ok) throw new Error(`Gemini APIエラー: ${response.status}`);
+    const data = await response.json();
+    const text = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+    const [title, ...body] = text.split("\n");
+    return {
+      title: title.replace(/^#+\s*/, "").trim(),
+      content: body.join("\n").trim(),
+    };
+  }
+
+  // === Claude ===
+  private async callClaude(prompt: GenerationPrompt) {
+    const response = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": this.config?.api_key || "",
+        "anthropic-version": "2023-06-01",
+      },
+      body: JSON.stringify({
+        model: this.config?.model,
+        temperature: this.config?.temperature,
+        max_tokens: this.config?.max_tokens,
+        messages: [{ role: "user", content: this.buildPrompt(prompt) }],
+      }),
+    });
+
+    if (!response.ok) throw new Error(`Claude APIエラー: ${response.status}`);
+    const data = await response.json();
+    const text = data.content?.[0]?.text || "";
+    const [title, ...body] = text.split("\n");
+    return {
+      title: title.replace(/^#+\s*/, "").trim(),
+      content: body.join("\n").trim(),
+    };
+  }
+
+  // === OpenAI ===
+  private async callOpenAI(prompt: GenerationPrompt) {
+    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${this.config?.api_key}`,
+      },
+      body: JSON.stringify({
+        model: this.config?.model,
+        temperature: this.config?.temperature,
+        max_tokens: this.config?.max_tokens,
+        messages: [
+          { role: "system", content: "You are a professional Japanese SEO writer." },
+          { role: "user", content: this.buildPrompt(prompt) },
+        ],
+      }),
+    });
+
+    if (!response.ok) throw new Error(`OpenAI APIエラー: ${response.status}`);
+    const data = await response.json();
+    const text = data.choices?.[0]?.message?.content || "";
+    const [title, ...body] = text.split("\n");
+    return {
+      title: title.replace(/^#+\s*/, "").trim(),
+      content: body.join("\n").trim(),
+    };
+  }
+
+  // === Utility関数 ===
   private generateExcerpt(content: string): string {
-    const cleanContent = content.replace(/^#+\s+/gm, '').trim();
-    const firstParagraph = cleanContent.split('\n\n')[0];
-    return firstParagraph.length > 150 
-      ? firstParagraph.substring(0, 150) + '...'
-      : firstParagraph;
+    const clean = content.replace(/^#+\s+/gm, "").trim();
+    const first = clean.split("\n\n")[0];
+    return first.length > 150 ? first.substring(0, 150) + "..." : first;
   }
 
   private extractKeywords(content: string, topic: string): string[] {
-    const keywords = [topic];
-    const words = content.toLowerCase().match(/[\w\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FAF]+/g) || [];
-    const wordCount: { [key: string]: number } = {};
-    words.forEach(word => {
-      if (word.length > 2) wordCount[word] = (wordCount[word] || 0) + 1;
-    });
-    const sortedWords = Object.entries(wordCount)
-      .sort(([,a], [,b]) => b - a)
-      .slice(0, 5)
-      .map(([word]) => word);
-    return [...new Set([...keywords, ...sortedWords])];
+    const words = content.match(/[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}A-Za-z0-9]+/gu) || [];
+    const freq: Record<string, number> = {};
+    words.forEach((w) => (freq[w] = (freq[w] || 0) + 1));
+    const sorted = Object.entries(freq).sort((a, b) => b[1] - a[1]).map(([w]) => w);
+    return [topic, ...sorted.slice(0, 5)];
   }
 
   private calculateSEOScore(title: string, content: string, keywords: string[]): number {
     let score = 0;
-    if (title.length >= 30 && title.length <= 60) score += 20;
-    else if (title.length >= 20 && title.length <= 80) score += 10;
-    const wordCount = content.split(/\s+/).length;
-    if (wordCount >= 500) score += 30;
-    else if (wordCount >= 300) score += 20;
-    else if (wordCount >= 200) score += 10;
-    const contentLower = content.toLowerCase();
-    keywords.forEach(keyword => {
-      if (contentLower.includes(keyword.toLowerCase())) score += 10;
-    });
-    const headerCount = (content.match(/^#+\s+/gm) || []).length;
-    if (headerCount >= 3) score += 20;
-    else if (headerCount >= 2) score += 10;
-    return Math.min(score, 100);
+    if (title.length >= 20 && title.length <= 60) score += 20;
+    if (content.length > 2000) score += 40;
+    if (keywords.some((k) => content.includes(k))) score += 20;
+    if ((content.match(/^##/gm) || []).length >= 3) score += 20;
+    return Math.min(100, score);
   }
 
   private calculateReadingTime(content: string): number {
-    const wordsPerMinute = 200;
-    const wordCount = content.split(/\s+/).length;
-    return Math.ceil(wordCount / wordsPerMinute);
+    const words = content.split(/\s+/).length;
+    return Math.ceil(words / 200);
   }
-}
-
-import { supabase } from "./supabaseClient";
-
-export async function saveAIConfig(config: {
-  provider: string;
-  api_key: string;
-  model: string;
-  temperature: number;
-  max_tokens: number;
-  image_enabled: boolean;
-  image_provider: string;
-}) {
-  // 既存の is_active = true を無効化
-  await supabase.from("ai_configs").update({ is_active: false }).eq("is_active", true);
-
-  // 新しい設定を保存
-  const { data, error } = await supabase
-    .from("ai_configs")
-    .insert({
-      provider: config.provider,
-      api_key: config.api_key,
-      model: config.model,
-      temperature: config.temperature,
-      max_tokens: config.max_tokens,
-      image_enabled: config.image_enabled,
-      image_provider: config.image_provider,
-      is_active: true,
-    })
-    .select()
-    .single();
-
-  if (error) throw new Error(`AI設定の保存に失敗しました: ${error.message}`);
-  return data;
-}
-
-// 最新のAI設定を取得する
-export async function getActiveAIConfig() {
-  const { data, error } = await supabase
-    .from("ai_configs")
-    .select("*")
-    .eq("is_active", true)
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .single();
-
-  if (error) throw new Error("AI設定の取得に失敗しました: " + error.message);
-  return data;
 }
