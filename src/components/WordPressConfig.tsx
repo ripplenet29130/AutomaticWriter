@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Globe, Plus, Check, X, Settings, TestTube, Calendar, Clock, FileText, Edit, TrendingUp, Search, Lightbulb, Target, Users, Hash } from 'lucide-react';
 import { useAppStore } from '../store/useAppStore';
-import { WordPressConfig, WordPressService } from '../services/wordPressService';
+import { WordPressConfig, WordPressService, saveWordPressConfig } from '../services/wordPressService';
 import { ScheduleSettings } from '../types';
 import toast from 'react-hot-toast';
 
@@ -18,37 +18,52 @@ export const WordPressConfigComponent: React.FC = () => {
     defaultCategory: ''
   });
 
-  const handleAddConfig = () => {
+  const handleAddConfig = async () => {
     if (!newConfig.name || !newConfig.url || !newConfig.username || !newConfig.applicationPassword) {
       toast.error('すべての必須フィールドを入力してください');
       return;
     }
 
-    const config: WordPressConfig = {
-      id: `wp-${Date.now()}`,
-      ...newConfig,
-      isActive: (wordPressConfigs || []).length === 0, // First config is active by default
-      scheduleSettings: {
-        frequency: 'daily' as const,
-        time: '09:00',
-        timezone: 'Asia/Tokyo',
-        isActive: false,
-        targetKeywords: [], // Changed from selectedTitles to targetKeywords
-        publishStatus: 'publish',
-        titleGenerationCount: 10
-      }
-    };
+    try {
+      // Save to Supabase first
+      const savedData = await saveWordPressConfig(
+        newConfig.name,
+        newConfig.url,
+        newConfig.username,
+        newConfig.applicationPassword,
+        newConfig.defaultCategory || ''
+      );
 
-    addWordPressConfig(config);
-    setNewConfig({
-      name: '',
-      url: '',
-      username: '',
-      applicationPassword: '',
-      defaultCategory: ''
-    });
-    setIsAddingNew(false);
-    toast.success('WordPress設定を追加しました');
+      // Then add to local store with the returned ID
+      const config: WordPressConfig = {
+        id: savedData.id,
+        ...newConfig,
+        isActive: (wordPressConfigs || []).length === 0, // First config is active by default
+        scheduleSettings: {
+          frequency: 'daily' as const,
+          time: '09:00',
+          timezone: 'Asia/Tokyo',
+          isActive: false,
+          targetKeywords: [], // Changed from selectedTitles to targetKeywords
+          publishStatus: 'publish',
+          titleGenerationCount: 10
+        }
+      };
+
+      addWordPressConfig(config);
+      setNewConfig({
+        name: '',
+        url: '',
+        username: '',
+        applicationPassword: '',
+        defaultCategory: ''
+      });
+      setIsAddingNew(false);
+      toast.success('WordPress設定をSupabaseに保存しました');
+    } catch (error: any) {
+      console.error('Error saving WordPress config:', error);
+      toast.error(`保存に失敗しました: ${error.message}`);
+    }
   };
 
   const handleTestConnection = async (config: WordPressConfig) => {

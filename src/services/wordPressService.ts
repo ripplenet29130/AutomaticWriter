@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { Article, ScheduleSettings } from '../types';
+import { supabase } from './supabaseClient';
 
 export interface WordPressConfig {
   id: string;
@@ -262,4 +263,36 @@ export class WordPressService {
     const categoryId = await this.findExistingCategoryBySlugOrName(categoryName);
     return categoryId ? [categoryId] : [];
   }
+}
+
+export async function saveWordPressConfig(
+  name: string,
+  wp_url: string,
+  wp_username: string,
+  wp_app_password: string,
+  wp_category: string
+): Promise<any> {
+  if (!supabase) {
+    throw new Error('Supabase is not initialized');
+  }
+
+  const { data, error } = await supabase
+    .from('wordpress_configs')
+    .insert({
+      name,
+      url: wp_url,
+      username: wp_username,
+      password: wp_app_password,
+      category: wp_category,
+      is_active: true
+    })
+    .select()
+    .single();
+
+  if (error) {
+    console.error('Error saving WordPress config:', error);
+    throw new Error(`WordPress設定の保存に失敗しました: ${error.message}`);
+  }
+
+  return data;
 }
