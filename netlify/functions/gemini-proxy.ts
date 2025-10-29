@@ -1,53 +1,52 @@
+// netlify/functions/gemini-proxy.ts
 export const handler = async (event: any) => {
+  // CORSプリフライト
+  if (event.httpMethod === 'OPTIONS') {
+    return {
+      statusCode: 200,
+      headers: {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Headers': 'Content-Type',
+        'Access-Control-Allow-Methods': 'POST, OPTIONS',
+      },
+      body: '',
+    };
+  }
+
   try {
     const body = JSON.parse(event.body || '{}');
-    const { prompt, apiKey, model, temperature, max_tokens } = body;
+    const { prompt, apiKey, model } = body;
 
-    // === バリデーション ===
-    if (!apiKey) {
-      return new Response(
-        JSON.stringify({ error: "API key missing" }),
-        { status: 400 }
-      );
-    }
-
-    const modelName = model || "gemini-2.5-flash";
+    const modelName = model || 'gemini-2.5-flash';
     const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
 
-    // === Gemini API 呼び出し ===
     const resp = await fetch(apiUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        contents: [
-          {
-            parts: [{ text: prompt }]
-          }
-        ],
-        generationConfig: {
-          temperature: temperature ?? 0.7,
-          maxOutputTokens: max_tokens ?? 4000,
-        },
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: { temperature: 0.7, maxOutputTokens: 2000 },
       }),
     });
 
     const data = await resp.json();
-
-    if (!resp.ok) {
-      console.error("Gemini API Error:", data);
-      return new Response(
-        JSON.stringify({ error: "Gemini API error", details: data }),
-        { status: 500 }
-      );
-    }
-
-    return new Response(JSON.stringify(data), { status: 200 });
-
-  } catch (err: any) {
-    console.error("Gemini Proxy internal error:", err);
-    return new Response(
-      JSON.stringify({ error: err.message }),
-      { status: 500 }
-    );
+    return {
+      statusCode: 200,
+      headers: {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Headers': 'Content-Type',
+      },
+      body: JSON.stringify(data),
+    };
+  } catch (e: any) {
+    console.error('Gemini proxy error:', e);
+    return {
+      statusCode: 500,
+      headers: {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Headers': 'Content-Type',
+      },
+      body: JSON.stringify({ error: e.message }),
+    };
   }
 };
