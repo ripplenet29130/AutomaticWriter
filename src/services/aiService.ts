@@ -129,7 +129,10 @@ ${sectionText}
 
   // === Gemini ===
   private async callGemini(prompt: GenerationPrompt) {
-    const response = await fetch("/.netlify/functions/gemini-proxy", {
+    const response = await 
+      console.log("📤 buildPrompt送信内容:", this.buildPrompt(prompt));
+
+      fetch("/.netlify/functions/gemini-proxy", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
