@@ -157,35 +157,51 @@ export const AIGenerator: React.FC = () => {
     }));
   };
 
-  const handleGenerate = async () => {
-    if (!aiConfig) {
-      toast.error('AI設定を完了してください');
-      return;
-    }
+const handleGenerate = async () => {
+  if (!aiConfig) {
+    toast.error('AI設定を完了してください');
+    return;
+  }
 
-    if (!prompt.topic.trim()) {
-      toast.error('記事のトピックを入力してください');
-      return;
-    }
+  // トピック未入力チェック
+  if (!prompt.topic.trim()) {
+    toast.error('記事のトピックを入力してください');
+    return;
+  }
 
-    try {
-      setIsGenerating(true);
-      const aiService = new AIService(aiConfig);
-      
-      toast.loading('AI記事を生成中...', { duration: 2000 });
-      const result = await aiService.generateArticle(prompt);
-      
-      setGeneratedArticle(result);
-      setIsPreview(true);
-      toast.success('記事が生成されました！');
-    } catch (error) {
-      console.error('記事生成エラー:', error);
-      toast.error('記事生成に失敗しました');
-    } finally {
-      setIsGenerating(false);
-    }
-  };
+  try {
+    setIsGenerating(true);
+    const aiService = new AIService(aiConfig);
 
+    // 🔹 ここで最新のpromptを「ローカル変数」として固定
+    const generationPrompt: GenerationPrompt = {
+      topic: prompt.topic,
+      keywords: [...prompt.keywords],
+      tone: prompt.tone,
+      length: prompt.length,
+      includeIntroduction: prompt.includeIntroduction,
+      includeConclusion: prompt.includeConclusion,
+      includeSources: prompt.includeSources,
+      useTrendData: prompt.useTrendData || false,
+    };
+
+    toast.loading('AI記事を生成中...', { duration: 2000 });
+
+    // 🔹 ローカル変数を明示的に渡す
+    const result = await aiService.generateArticle(generationPrompt);
+
+    setGeneratedArticle(result);
+    setIsPreview(true);
+    toast.success('記事が生成されました！');
+  } catch (error) {
+    console.error('記事生成エラー:', error);
+    toast.error('記事生成に失敗しました');
+  } finally {
+    setIsGenerating(false);
+  }
+};
+
+  
   const handleSaveArticle = () => {
     if (!generatedArticle) return;
 
