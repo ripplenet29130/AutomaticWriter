@@ -253,3 +253,35 @@ ${prompt.topic}は現代社会において重要な話題となっています�
     return Math.ceil(wordCount / wordsPerMinute);
   }
 }
+
+import { supabase } from "./supabaseClient";
+
+// AI設定を保存する関数
+export async function saveAIConfig(
+  api_key: string,
+  model: string,
+  temperature: number,
+  max_tokens: number
+): Promise<any> {
+  const { data, error } = await supabase
+    .from("ai_configs")
+    .insert({
+      api_key,
+      model,
+      temperature,
+      max_tokens,
+      is_active: true,
+    })
+    .select()
+    .single();
+
+  if (error) throw new Error(`AI設定の保存に失敗しました: ${error.message}`);
+  return data;
+}
+
+// AI設定を取得する関数
+export async function getAIConfigs(): Promise<any[]> {
+  const { data, error } = await supabase.from("ai_configs").select("*");
+  if (error) throw new Error(`AI設定の取得に失敗しました: ${error.message}`);
+  return data;
+}
