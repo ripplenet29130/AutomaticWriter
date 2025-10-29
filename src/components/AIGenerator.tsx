@@ -184,6 +184,9 @@ const handleGenerate = async () => {
     setIsGenerating(true);
     const aiService = new AIService(aiConfig);
 
+    console.log("🔍 渡されるaiConfig:", aiConfig);
+
+
     // 🔹 ここで最新のpromptを「ローカル変数」として固定
     const generationPrompt: GenerationPrompt = {
       topic: prompt.topic,
