@@ -7,6 +7,26 @@ import { GenerationPrompt, Article, ArticleTopic, TrendAnalysisResult } from '..
 import { articleTopics } from '../data/articleTopics';
 import toast from 'react-hot-toast';
 
+import { supabase } from '../services/supabaseClient'; // すでにあれば不要
+
+// 最新AI設定をSupabaseから取得
+async function fetchActiveAIConfig() {
+  const { data, error } = await supabase
+    .from('ai_configs')
+    .select('*')
+    .eq('is_active', true)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .single();
+
+  if (error) {
+    console.error('AI設定の取得に失敗しました:', error.message);
+    return null;
+  }
+  return data;
+}
+
+
 export const AIGenerator: React.FC = () => {
   const { aiConfig, addArticle, setIsGenerating, isGenerating, wordPressConfigs, updateArticle } = useAppStore();
   const [selectedTopic, setSelectedTopic] = useState<ArticleTopic | null>(null);
@@ -31,6 +51,38 @@ export const AIGenerator: React.FC = () => {
   const [selectedWordPressConfig, setSelectedWordPressConfig] = useState<string>('');
   const [publishStatus, setPublishStatus] = useState<'publish' | 'draft'>('publish');
 
+  // 🔹 SupabaseからAI設定を自動取得
+  useEffect(() => {
+    async function loadAIConfig() {
+      try {
+        const { data, error } = await supabase
+          .from('ai_configs')
+          .select('*')
+          .eq('is_active', true)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .single();
+
+        if (error) {
+          console.error('AI設定の取得に失敗しました:', error.message);
+          return;
+        }
+
+        if (data) {
+          useAppStore.setState({ aiConfig: data });
+          console.log('✅ SupabaseからAI設定をロードしました:', data);
+        } else {
+          console.warn('AI設定が見つかりません。');
+        }
+      } catch (err) {
+        console.error('AI設定ロード中のエラー:', err);
+      }
+    }
+
+    loadAIConfig();
+  }, []);
+
+  
   // Check for pending trend data on component mount
   useEffect(() => {
     const pendingTrendData = localStorage.getItem('pendingTrendData');
