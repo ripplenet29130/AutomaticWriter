@@ -5,3 +5,4 @@ command = "npx vite build"
 
 [functions]
 node_bundler = "esbuild"
+timeout = 26
