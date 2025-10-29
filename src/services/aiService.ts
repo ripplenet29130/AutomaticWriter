@@ -248,3 +248,30 @@ ${sectionText}
     return Math.ceil(words / 200);
   }
 }
+
+// === AI設定を保存する関数 ===
+import { supabase } from "../config/supabaseClient"; // すでにある場合は重複しないよう注意
+
+export async function saveAIConfig(config: any) {
+  const { error } = await supabase
+    .from("ai_configs")
+    .insert({
+      provider: config.provider,
+      api_key: config.api_key,
+      model: config.model,
+      temperature: config.temperature,
+      max_tokens: config.max_tokens,
+      image_enabled: config.image_enabled,
+      image_provider: config.image_provider,
+      is_active: true, // 保存後すぐに使えるように
+      created_at: new Date().toISOString(),
+    });
+
+  if (error) {
+    console.error("❌ AI設定の保存に失敗しました:", error.message);
+    throw new Error("AI設定の保存に失敗しました");
+  }
+
+  console.log("✅ AI設定を保存しました:", config);
+  return true;
+}
