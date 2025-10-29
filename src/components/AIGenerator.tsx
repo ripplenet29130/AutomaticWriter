@@ -52,35 +52,46 @@ export const AIGenerator: React.FC = () => {
   const [publishStatus, setPublishStatus] = useState<'publish' | 'draft'>('publish');
 
   // 🔹 SupabaseからAI設定を自動取得
-  useEffect(() => {
-    async function loadAIConfig() {
-      try {
-        const { data, error } = await supabase
-          .from('ai_configs')
-          .select('*')
-          .eq('is_active', true)
-          .order('created_at', { ascending: false })
-          .limit(1)
-          .single();
+useEffect(() => {
+  async function loadAIConfig() {
+    try {
+      const { data, error } = await supabase
+        .from('ai_configs')
+        .select('*')
+        .eq('is_active', true)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .single();
 
-        if (error) {
-          console.error('AI設定の取得に失敗しました:', error.message);
-          return;
-        }
-
-        if (data) {
-          useAppStore.setState({ aiConfig: data });
-          console.log('✅ SupabaseからAI設定をロードしました:', data);
-        } else {
-          console.warn('AI設定が見つかりません。');
-        }
-      } catch (err) {
-        console.error('AI設定ロード中のエラー:', err);
+      if (error) {
+        console.error('AI設定の取得に失敗しました:', error.message);
+        return;
       }
-    }
 
-    loadAIConfig();
-  }, []);
+      if (data) {
+        // Supabaseのカラム名 → AIServiceが使いやすい形にマッピング
+        const mapped = {
+          provider: data.provider,          // "gemini" | "openai" | "claude"
+          apiKey: data.api_key,             // ← api_key を apiKey に
+          model: data.model,                // 例: "gemini-2.5-flash"
+          temperature: data.temperature ?? 0.7,
+          max_tokens: data.max_tokens ?? 4000,
+        };
+
+        useAppStore.setState({ aiConfig: mapped });
+
+        console.log('✅ SupabaseからAI設定をロードしました:', mapped);
+      } else {
+        console.warn('AI設定が見つかりません。');
+      }
+    } catch (err) {
+      console.error('AI設定ロード中のエラー:', err);
+    }
+  }
+
+  loadAIConfig();
+}, []);
+
 
   
   // Check for pending trend data on component mount
