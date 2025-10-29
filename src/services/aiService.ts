@@ -142,7 +142,6 @@ ${sectionText}
   temperature: this.config.temperature,
   max_tokens: this.config.max_tokens,  // ここは config 側に合わせる
 }),
-
     });
 
     if (!response.ok) throw new Error(`Gemini APIエラー: ${response.status}`);
