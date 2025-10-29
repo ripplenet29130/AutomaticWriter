@@ -36,7 +36,7 @@ export class AIService {
 
       // 必須項目のチェック
       if (!this.config?.provider) throw new Error("AIプロバイダが設定されていません。AI設定ページで設定してください。");
-      if (!this.config?.apikey) throw new Error("APIキーが設定されていません。AI設定ページで設定してください。");
+      if (!this.config?.apiKey) throw new Error("APIキーが設定されていません。AI設定ページで設定してください。");
       if (!this.config?.model) throw new Error("モデルが設定されていません。AI設定ページでモデルを選択してください。");
 
       let result;
