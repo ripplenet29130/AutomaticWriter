@@ -25,32 +25,25 @@ export const WordPressConfigComponent: React.FC = () => {
     }
 
     try {
-      // Save to Supabase first
-      const savedData = await saveWordPressConfig(
-        newConfig.name,
-        newConfig.url,
-        newConfig.username,
-        newConfig.applicationPassword,
-        newConfig.defaultCategory || ''
-      );
-
-      // Then add to local store with the returned ID
+      // Create config object with schedule settings
       const config: WordPressConfig = {
-        id: savedData.id,
+        id: crypto.randomUUID(),
         ...newConfig,
-        isActive: (wordPressConfigs || []).length === 0, // First config is active by default
+        isActive: (wordPressConfigs || []).length === 0,
         scheduleSettings: {
           frequency: 'daily' as const,
           time: '09:00',
           timezone: 'Asia/Tokyo',
           isActive: false,
-          targetKeywords: [], // Changed from selectedTitles to targetKeywords
+          targetKeywords: [],
           publishStatus: 'publish',
           titleGenerationCount: 10
         }
       };
 
-      addWordPressConfig(config);
+      // Save to Supabase via Zustand store (which handles both wordpress_configs and schedule_settings)
+      await addWordPressConfig(config);
+
       setNewConfig({
         name: '',
         url: '',
