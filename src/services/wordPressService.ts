@@ -14,10 +14,10 @@ export interface WordPressConfig {
 }
 
 export class WordPressService {
-  private config: WordPressConfig;
-constructor() {
-  this.config = null as any; // 初期値はnull
-}
+  private config: WordPressConfig | null = null;
+
+constructor() {}
+
 
   async loadActiveConfig(): Promise<void> {
     const { data, error } = await supabase
