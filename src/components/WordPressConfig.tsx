@@ -69,7 +69,8 @@ export const WordPressConfigComponent: React.FC = () => {
   const handleTestConnection = async (config: WordPressConfig) => {
     setTestingConfig(config.id);
     try {
-      const service = new WordPressService(config);
+      const service = new WordPressService();
+      await service.loadActiveConfig();
       const isConnected = await service.testConnection();
       
       if (isConnected) {

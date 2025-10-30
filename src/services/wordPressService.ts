@@ -46,6 +46,9 @@ async testConnection(): Promise<boolean> {
   if (!this.config) {
     await this.loadActiveConfig();
   }
+  if (!this.config) {
+    return false;
+  }
   try {
     const response = await axios.get(`${this.config.url}/wp-json/wp/v2/posts`, {
       headers: this.getAuthHeaders(),
@@ -61,6 +64,9 @@ async testConnection(): Promise<boolean> {
   async publishArticle(article: Article, publishStatus: 'publish' | 'draft' = 'publish') {
   if (!this.config) {
     await this.loadActiveConfig();
+  }
+  if (!this.config) {
+    return { success: false, error: 'WordPress設定が見つかりません' };
   }
 
   try {
@@ -113,6 +119,9 @@ async testConnection(): Promise<boolean> {
     if (!this.config) {
     await this.loadActiveConfig();
   }
+    if (!this.config) {
+      return { success: false, error: 'WordPress設定が見つかりません' };
+    }
     try {
       // HTMLタグをそのまま使用（変換不要）
       const processedContent = article.content;
@@ -161,6 +170,7 @@ async testConnection(): Promise<boolean> {
   }
 
   async getRecentPosts(limit: number = 10): Promise<any[]> {
+    if (!this.config) return [];
     try {
       const response = await axios.get(`${this.config.url}/wp-json/wp/v2/posts`, {
         headers: this.getAuthHeaders(),
@@ -177,7 +187,89 @@ async testConnection(): Promise<boolean> {
     }
   }
 
+  async getAllPosts(params?: {
+    status?: string;
+    per_page?: number;
+    page?: number;
+    search?: string;
+    orderby?: string;
+    order?: string;
+  }): Promise<{ posts: any[]; total: number; totalPages: number }> {
+    if (!this.config) {
+      await this.loadActiveConfig();
+    }
+
+    try {
+      const queryParams: any = {
+        per_page: params?.per_page || 100,
+        page: params?.page || 1,
+        orderby: params?.orderby || 'date',
+        order: params?.order || 'desc',
+        status: params?.status || 'any'
+      };
+
+      if (params?.search) {
+        queryParams.search = params.search;
+      }
+
+      if (!this.config) return { posts: [], total: 0, totalPages: 0 };
+      const response = await axios.get(`${this.config.url}/wp-json/wp/v2/posts`, {
+        headers: this.getAuthHeaders(),
+        params: queryParams
+      });
+
+      const total = parseInt(response.headers['x-wp-total'] || '0');
+      const totalPages = parseInt(response.headers['x-wp-totalpages'] || '0');
+
+      return {
+        posts: response.data,
+        total,
+        totalPages
+      };
+    } catch (error) {
+      console.error('WordPress記事一覧取得エラー:', error);
+      return { posts: [], total: 0, totalPages: 0 };
+    }
+  }
+
+  async getPostById(postId: string | number): Promise<any | null> {
+    if (!this.config) {
+      await this.loadActiveConfig();
+    }
+    if (!this.config) return null;
+
+    try {
+      const response = await axios.get(
+        `${this.config.url}/wp-json/wp/v2/posts/${postId}`,
+        { headers: this.getAuthHeaders() }
+      );
+      return response.data;
+    } catch (error) {
+      console.error('WordPress記事取得エラー:', error);
+      return null;
+    }
+  }
+
+  async deletePost(postId: string | number): Promise<boolean> {
+    if (!this.config) {
+      await this.loadActiveConfig();
+    }
+    if (!this.config) return false;
+
+    try {
+      const response = await axios.delete(
+        `${this.config.url}/wp-json/wp/v2/posts/${postId}`,
+        { headers: this.getAuthHeaders() }
+      );
+      return response.status === 200;
+    } catch (error) {
+      console.error('WordPress記事削除エラー:', error);
+      return false;
+    }
+  }
+
   async getExistingCategories(): Promise<{ id: number; name: string; slug: string }[]> {
+    if (!this.config) return [];
     try {
       const response = await axios.get(`${this.config.url}/wp-json/wp/v2/categories`, {
         headers: this.getAuthHeaders(),
@@ -196,6 +288,7 @@ async testConnection(): Promise<boolean> {
   }
 
   private getAuthHeaders() {
+    if (!this.config) throw new Error('WordPress設定が見つかりません');
     const credentials = btoa(`${this.config.username}:${this.config.applicationPassword}`);
     return {
       'Authorization': `Basic ${credentials}`,
@@ -204,6 +297,7 @@ async testConnection(): Promise<boolean> {
   }
 
   private async getExistingCategoryIds(articleCategory: string): Promise<number[]> {
+    if (!this.config) return [];
     try {
       const categoryIds: number[] = [];
 
@@ -249,6 +343,7 @@ async testConnection(): Promise<boolean> {
   }
 
   private async findExistingCategoryBySlugOrName(categoryIdentifier: string): Promise<number | null> {
+    if (!this.config) return null;
     try {
       // First, try to find by slug
       let searchResponse = await axios.get(`${this.config.url}/wp-json/wp/v2/categories`, {
