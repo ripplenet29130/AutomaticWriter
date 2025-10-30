@@ -41,19 +41,22 @@ constructor() {}
       defaultCategory: data.default_category || "",
     };
   }
-  
-  async testConnection(): Promise<boolean> {
-    try {
-      const response = await axios.get(`${this.config.url}/wp-json/wp/v2/posts`, {
-        headers: this.getAuthHeaders(),
-        params: { per_page: 1 }
-      });
-      return response.status === 200;
-    } catch (error) {
-      console.error('WordPress接続テストエラー:', error);
-      return false;
-    }
+ 
+async testConnection(): Promise<boolean> {
+  if (!this.config) {
+    await this.loadActiveConfig();
   }
+  try {
+    const response = await axios.get(`${this.config.url}/wp-json/wp/v2/posts`, {
+      headers: this.getAuthHeaders(),
+      params: { per_page: 1 }
+    });
+    return response.status === 200;
+  } catch (error) {
+    console.error('WordPress接続テストエラー:', error);
+    return false;
+  }
+}
 
   async publishArticle(article: Article, publishStatus: 'publish' | 'draft' = 'publish') {
   if (!this.config) {
