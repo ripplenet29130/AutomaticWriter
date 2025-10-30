@@ -6,86 +6,64 @@ import {
   CheckCircle,
   Clock,
   AlertCircle,
-  Bot
+  Bot,
+  ExternalLink
 } from 'lucide-react';
 import { useAppStore } from '../store/useAppStore';
-import { WordPressService } from '../services/wordPressService';
+import { articlesService } from '../services/articlesService';
+import { Article } from '../types';
 import { format } from 'date-fns';
 import { ja } from 'date-fns/locale';
 
-interface WordPressPost {
-  id: number;
-  date: string;
-  status: string;
-  title: { rendered: string };
-  link: string;
-}
-
 export const Dashboard: React.FC = () => {
-  const { wordPressConfigs, isGenerating } = useAppStore();
+  const { isGenerating } = useAppStore();
   const [stats, setStats] = useState({
     totalArticles: 0,
     publishedToday: 0,
     draftArticles: 0,
-    scheduledArticles: 0
+    wordPressPublished: 0
   });
-  const [recentPosts, setRecentPosts] = useState<WordPressPost[]>([]);
+  const [recentArticles, setRecentArticles] = useState<Article[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    loadWordPressStats();
-  }, [wordPressConfigs]);
+    loadSupabaseStats();
+  }, []);
 
-  const loadWordPressStats = async () => {
-    if (wordPressConfigs.length === 0) {
-      setIsLoading(false);
-      return;
-    }
-
+  const loadSupabaseStats = async () => {
     try {
       setIsLoading(true);
-      const wordPressService = new WordPressService();
-      await wordPressService.loadActiveConfig();
 
-      const result = await wordPressService.getAllPosts({
-        status: 'any',
-        per_page: 100
-      });
+      const allArticles = await articlesService.getAllArticles(undefined, { field: 'created_at', ascending: false }, 100);
 
       const today = new Date();
       today.setHours(0, 0, 0, 0);
 
-      const publishedToday = result.posts.filter(post =>
-        post.status === 'publish' && new Date(post.date) >= today
+      const publishedToday = allArticles.filter(article =>
+        article.publishedAt && new Date(article.publishedAt) >= today
       ).length;
 
-      const draftArticles = result.posts.filter(post =>
-        post.status === 'draft'
+      const draftArticles = allArticles.filter(article =>
+        article.status === 'draft'
       ).length;
 
-      const scheduledArticles = result.posts.filter(post =>
-        post.status === 'future'
+      const wordPressPublished = allArticles.filter(article =>
+        article.isPublished === true
       ).length;
 
       setStats({
-        totalArticles: result.total,
+        totalArticles: allArticles.length,
         publishedToday,
         draftArticles,
-        scheduledArticles
+        wordPressPublished
       });
 
-      setRecentPosts(result.posts.slice(0, 5));
+      setRecentArticles(allArticles.slice(0, 5));
     } catch (error) {
-      console.error('WordPress統計取得エラー:', error);
+      console.error('Supabase統計取得エラー:', error);
     } finally {
       setIsLoading(false);
     }
-  };
-
-  const stripHtml = (html: string) => {
-    const tmp = document.createElement('div');
-    tmp.innerHTML = html;
-    return tmp.textContent || tmp.innerText || '';
   };
 
   const getStatusColor = (status: string) => {
@@ -139,11 +117,11 @@ export const Dashboard: React.FC = () => {
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm font-medium text-gray-600">予約投稿</p>
-              <p className="text-3xl font-bold text-blue-600">{stats.scheduledArticles}</p>
+              <p className="text-sm font-medium text-gray-600">下書き</p>
+              <p className="text-3xl font-bold text-yellow-600">{stats.draftArticles}</p>
             </div>
-            <div className="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center">
-              <Calendar className="w-6 h-6 text-blue-600" />
+            <div className="w-12 h-12 bg-yellow-100 rounded-lg flex items-center justify-center">
+              <Clock className="w-6 h-6 text-yellow-600" />
             </div>
           </div>
         </div>
@@ -151,11 +129,11 @@ export const Dashboard: React.FC = () => {
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm font-medium text-gray-600">下書き</p>
-              <p className="text-3xl font-bold text-yellow-600">{stats.draftArticles}</p>
+              <p className="text-sm font-medium text-gray-600">WordPress投稿済み</p>
+              <p className="text-3xl font-bold text-blue-600">{stats.wordPressPublished}</p>
             </div>
-            <div className="w-12 h-12 bg-yellow-100 rounded-lg flex items-center justify-center">
-              <Clock className="w-6 h-6 text-yellow-600" />
+            <div className="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center">
+              <CheckCircle className="w-6 h-6 text-blue-600" />
             </div>
           </div>
         </div>
@@ -216,15 +194,15 @@ export const Dashboard: React.FC = () => {
             </div>
             <div className="flex items-center justify-between">
               <span className="text-sm font-medium text-gray-700">公開済み</span>
-              <span className="text-sm text-green-600">{stats.totalArticles - stats.draftArticles - stats.scheduledArticles}記事</span>
+              <span className="text-sm text-green-600">{stats.totalArticles - stats.draftArticles}記事</span>
             </div>
             <div className="flex items-center justify-between">
               <span className="text-sm font-medium text-gray-700">下書き</span>
               <span className="text-sm text-yellow-600">{stats.draftArticles}記事</span>
             </div>
             <div className="flex items-center justify-between">
-              <span className="text-sm font-medium text-gray-700">予約投稿</span>
-              <span className="text-sm text-blue-600">{stats.scheduledArticles}記事</span>
+              <span className="text-sm font-medium text-gray-700">WordPress投稿済み</span>
+              <span className="text-sm text-blue-600">{stats.wordPressPublished}記事</span>
             </div>
           </div>
         </div>
@@ -233,7 +211,7 @@ export const Dashboard: React.FC = () => {
       {/* Recent Articles */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-200">
         <div className="p-6 border-b border-gray-200">
-          <h3 className="text-lg font-semibold text-gray-900">最近の記事（WordPress）</h3>
+          <h3 className="text-lg font-semibold text-gray-900">最近の記事</h3>
         </div>
         <div className="p-6">
           {isLoading ? (
@@ -241,13 +219,7 @@ export const Dashboard: React.FC = () => {
               <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-4"></div>
               <p className="text-gray-500">読み込み中...</p>
             </div>
-          ) : wordPressConfigs.length === 0 ? (
-            <div className="text-center py-8">
-              <FileText className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-              <p className="text-gray-500">WordPress設定が必要です</p>
-              <p className="text-sm text-gray-400">設定ページでWordPress接続を設定してください</p>
-            </div>
-          ) : recentPosts.length === 0 ? (
+          ) : recentArticles.length === 0 ? (
             <div className="text-center py-8">
               <FileText className="w-12 h-12 text-gray-400 mx-auto mb-4" />
               <p className="text-gray-500">記事がまだありません</p>
@@ -255,32 +227,45 @@ export const Dashboard: React.FC = () => {
             </div>
           ) : (
             <div className="space-y-4">
-              {recentPosts.map((post) => (
-                <div key={post.id} className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
+              {recentArticles.map((article) => (
+                <div key={article.id} className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
                   <div className="flex-1">
-                    <h4 className="font-medium text-gray-900 mb-1">{stripHtml(post.title.rendered)}</h4>
+                    <h4 className="font-medium text-gray-900 mb-1">{article.title}</h4>
                     <div className="flex items-center space-x-4 text-sm text-gray-500">
-                      <span>{format(new Date(post.date), 'yyyy/MM/dd HH:mm', { locale: ja })}</span>
-                      <a
-                        href={post.link}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-blue-600 hover:underline"
-                      >
-                        WordPressで表示
-                      </a>
+                      {article.generatedAt && (
+                        <span>{format(new Date(article.generatedAt), 'yyyy/MM/dd HH:mm', { locale: ja })}</span>
+                      )}
+                      <span>{article.category}</span>
+                      {article.isPublished && article.wordPressUrl && (
+                        <a
+                          href={article.wordPressUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex items-center gap-1 text-blue-600 hover:underline"
+                        >
+                          <ExternalLink className="w-3 h-3" />
+                          WordPressで表示
+                        </a>
+                      )}
                     </div>
                   </div>
                   <div className="flex items-center space-x-3">
+                    {article.isPublished && (
+                      <span className="px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                        WordPress投稿済み
+                      </span>
+                    )}
                     <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                      post.status === 'publish' ? 'text-green-600 bg-green-100' :
-                      post.status === 'draft' ? 'text-yellow-600 bg-yellow-100' :
-                      post.status === 'future' ? 'text-blue-600 bg-blue-100' :
+                      article.status === 'published' ? 'text-green-600 bg-green-100' :
+                      article.status === 'draft' ? 'text-yellow-600 bg-yellow-100' :
+                      article.status === 'scheduled' ? 'text-blue-600 bg-blue-100' :
+                      article.status === 'failed' ? 'text-red-600 bg-red-100' :
                       'text-gray-600 bg-gray-100'
                     }`}>
-                      {post.status === 'publish' ? '公開済み' :
-                       post.status === 'draft' ? '下書き' :
-                       post.status === 'future' ? '予約済み' : post.status}
+                      {article.status === 'published' ? '公開済み' :
+                       article.status === 'draft' ? '下書き' :
+                       article.status === 'scheduled' ? '予約済み' :
+                       article.status === 'failed' ? '失敗' : article.status}
                     </span>
                   </div>
                 </div>

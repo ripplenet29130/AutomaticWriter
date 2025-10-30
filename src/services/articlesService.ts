@@ -34,6 +34,8 @@ export const articlesService = {
           published_at: article.publishedAt,
           wordpress_post_id: article.wordPressPostId || '',
           wordpress_config_id: article.wordPressConfigId,
+          is_published: article.isPublished || false,
+          wordpress_url: article.wordPressUrl || null,
           seo_score: article.seoScore || 0,
           reading_time: article.readingTime || 0,
           word_count: article.wordCount || 0,
@@ -72,6 +74,8 @@ export const articlesService = {
       if (updates.publishedAt !== undefined) updateData.published_at = updates.publishedAt;
       if (updates.wordPressPostId !== undefined) updateData.wordpress_post_id = updates.wordPressPostId;
       if (updates.wordPressConfigId !== undefined) updateData.wordpress_config_id = updates.wordPressConfigId;
+      if (updates.isPublished !== undefined) updateData.is_published = updates.isPublished;
+      if (updates.wordPressUrl !== undefined) updateData.wordpress_url = updates.wordPressUrl;
       if (updates.seoScore !== undefined) updateData.seo_score = updates.seoScore;
       if (updates.readingTime !== undefined) updateData.reading_time = updates.readingTime;
       if (updates.wordCount !== undefined) updateData.word_count = updates.wordCount;
@@ -249,6 +253,8 @@ export const articlesService = {
       publishedAt: data.published_at,
       wordPressPostId: data.wordpress_post_id || '',
       wordPressConfigId: data.wordpress_config_id,
+      isPublished: data.is_published || false,
+      wordPressUrl: data.wordpress_url || '',
       seoScore: data.seo_score || 0,
       readingTime: data.reading_time || 0,
       wordCount: data.word_count || 0,

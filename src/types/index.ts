@@ -18,6 +18,8 @@ export interface Article {
   wordPressPostId?: string;
   wordPressConfigId?: string;
   wordPressId?: number;
+  isPublished?: boolean;
+  wordPressUrl?: string;
   seoScore?: number;
   readingTime?: number;
   wordCount?: number;

@@ -8,6 +8,7 @@ import { articleTopics } from '../data/articleTopics';
 import toast from 'react-hot-toast';
 import { supabase } from '../services/supabaseClient';
 import { customTopicsService } from '../services/customTopicsService';
+import { articlesService } from '../services/articlesService';
 
 // 最新AI設定をSupabaseから取得
 async function fetchActiveAIConfig() {
@@ -253,22 +254,16 @@ const handleGenerate = async () => {
 
   
   const handleSaveArticle = async () => {
-    if (!generatedArticle || !selectedWordPressConfig) {
-      toast.error('WordPress設定が選択されていません');
-      return;
-    }
-
-    const wordPressConfig = wordPressConfigs.find(config => config.id === selectedWordPressConfig);
-    if (!wordPressConfig) {
-      toast.error('選択されたWordPress設定が見つかりません');
+    if (!generatedArticle) {
+      toast.error('生成された記事がありません');
       return;
     }
 
     try {
       setIsPublishing(true);
+      toast.loading('記事を保存中...', { duration: 2000 });
 
-      const article: Article = {
-        id: '',
+      const articleData: Partial<Article> = {
         title: generatedArticle.title,
         content: generatedArticle.content,
         excerpt: generatedArticle.excerpt || '',
@@ -283,28 +278,25 @@ const handleGenerate = async () => {
         readingTime: generatedArticle.readingTime || 0,
         wordCount: generatedArticle.content?.length || 0,
         trendData: trendData || {},
-        generatedAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString()
+        wordPressConfigId: selectedWordPressConfig,
+        isPublished: false
       };
 
-      const wordPressService = new WordPressService();
-      await wordPressService.loadActiveConfig();
+      const savedArticle = await articlesService.createArticle(articleData);
 
-      toast.loading('WordPress下書き保存中...', { duration: 3000 });
+      if (savedArticle) {
+        addArticle(savedArticle);
 
-      const publishResult = await wordPressService.publishArticle(article, 'draft');
-
-      if (publishResult.success) {
         if (prompt.topic && !selectedTopic) {
           await customTopicsService.findOrCreateTopic(prompt.topic, {
             keywords: prompt.keywords,
             tone: prompt.tone,
             length: prompt.length,
-            category: article.category
+            category: articleData.category
           });
         }
 
-        toast.success(`記事「${article.title}」をWordPressに下書き保存しました！`);
+        toast.success(`記事「${savedArticle.title}」を下書きとして保存しました！`);
 
         setGeneratedArticle(null);
         setIsPreview(false);
@@ -323,11 +315,11 @@ const handleGenerate = async () => {
           useTrendData: false
         });
       } else {
-        toast.error(`WordPress下書き保存に失敗しました: ${publishResult.error}`);
+        toast.error('記事の保存に失敗しました');
       }
     } catch (error) {
-      console.error('WordPress下書き保存エラー:', error);
-      toast.error('WordPress下書き保存でエラーが発生しました');
+      console.error('記事保存エラー:', error);
+      toast.error('記事の保存でエラーが発生しました');
     } finally {
       setIsPublishing(false);
     }
@@ -348,8 +340,9 @@ const handleGenerate = async () => {
     try {
       setIsPublishing(true);
 
-      const article: Article = {
-        id: '',
+      toast.loading('記事をSupabaseに保存中...', { duration: 2000 });
+
+      const articleData: Partial<Article> = {
         title: generatedArticle.title,
         content: generatedArticle.content,
         excerpt: generatedArticle.excerpt || '',
@@ -364,31 +357,60 @@ const handleGenerate = async () => {
         readingTime: generatedArticle.readingTime || 0,
         wordCount: generatedArticle.content?.length || 0,
         trendData: trendData || {},
-        generatedAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString()
+        wordPressConfigId: selectedWordPressConfig,
+        isPublished: false
       };
+
+      const savedArticle = await articlesService.createArticle(articleData);
+
+      if (!savedArticle) {
+        toast.error('記事の保存に失敗しました');
+        return;
+      }
+
+      addArticle(savedArticle);
+
+      if (prompt.topic && !selectedTopic) {
+        await customTopicsService.findOrCreateTopic(prompt.topic, {
+          keywords: prompt.keywords,
+          tone: prompt.tone,
+          length: prompt.length,
+          category: articleData.category
+        });
+      }
 
       const wordPressService = new WordPressService();
       await wordPressService.loadActiveConfig();
 
-      const statusText = publishStatus === 'publish' ? 'WordPress投稿中...' : 'WordPress下書き保存中...';
+      const statusText = publishStatus === 'publish' ? 'WordPressに投稿中...' : 'WordPressに下書き保存中...';
       toast.loading(statusText, { duration: 3000 });
 
-      const publishResult = await wordPressService.publishArticle(article, publishStatus);
+      const publishResult = await wordPressService.publishArticle(savedArticle, publishStatus);
 
       if (publishResult.success) {
-        if (prompt.topic && !selectedTopic) {
-          await customTopicsService.findOrCreateTopic(prompt.topic, {
-            keywords: prompt.keywords,
-            tone: prompt.tone,
-            length: prompt.length,
-            category: article.category
-          });
-        }
+        const wordPressUrl = wordPressConfig.url + '/?p=' + publishResult.wordPressId;
+
+        await articlesService.updateArticle(savedArticle.id, {
+          status: publishStatus === 'publish' ? 'published' : 'draft',
+          wordPressPostId: publishResult.wordPressId?.toString(),
+          wordPressId: publishResult.wordPressId,
+          isPublished: true,
+          wordPressUrl: wordPressUrl,
+          publishedAt: publishStatus === 'publish' ? new Date().toISOString() : undefined
+        });
+
+        updateArticle(savedArticle.id, {
+          status: publishStatus === 'publish' ? 'published' : 'draft',
+          wordPressPostId: publishResult.wordPressId?.toString(),
+          wordPressId: publishResult.wordPressId,
+          isPublished: true,
+          wordPressUrl: wordPressUrl,
+          publishedAt: publishStatus === 'publish' ? new Date().toISOString() : undefined
+        });
 
         const successMessage = publishStatus === 'publish'
-          ? `記事「${article.title}」を${wordPressConfig.name}に公開しました！`
-          : `記事「${article.title}」を${wordPressConfig.name}に下書き保存しました！`;
+          ? `記事「${savedArticle.title}」を${wordPressConfig.name}に公開しました！`
+          : `記事「${savedArticle.title}」を${wordPressConfig.name}に下書き保存しました！`;
 
         toast.success(successMessage);
 
@@ -409,6 +431,8 @@ const handleGenerate = async () => {
           useTrendData: false
         });
       } else {
+        await articlesService.updateArticle(savedArticle.id, { status: 'failed' });
+        updateArticle(savedArticle.id, { status: 'failed' });
         toast.error(`WordPress投稿に失敗しました: ${publishResult.error}`);
       }
     } catch (error) {
@@ -455,10 +479,9 @@ const handleGenerate = async () => {
             </button>
             <button
               onClick={handleSaveArticle}
-              disabled={!selectedWordPressConfig}
-              className="btn-secondary disabled:opacity-50 disabled:cursor-not-allowed"
+              className="btn-secondary"
             >
-              WordPress下書き保存
+              下書き保存
             </button>
           </div>
         </div>
