@@ -33,13 +33,14 @@ constructor() {
     }
   }
 
-  async publishArticle(
-    article: Article, 
-    publishStatus: 'publish' | 'draft' = 'publish'
-  ): Promise<{ success: boolean; wordPressId?: number; error?: string }> {
-    try {
-      // HTMLタグをそのまま使用（変換不要）
-      const processedContent = article.content;
+  async publishArticle(article: Article, publishStatus: 'publish' | 'draft' = 'publish') {
+  if (!this.config) {
+    await this.loadActiveConfig();
+  }
+
+  try {
+    const processedContent = article.content;
+
 
       // Get category IDs - only use existing categories, don't create new ones
       const categoryIds = await this.getExistingCategoryIds(article.category);
@@ -295,4 +296,28 @@ export async function saveWordPressConfig(
   }
 
   return data;
+}
+
+
+async loadActiveConfig(): Promise<void> {
+  const { data, error } = await supabase
+    .from("wordpress_configs")
+    .select("*")
+    .eq("is_active", true)
+    .single();
+
+  if (error || !data) {
+    console.error("WordPress設定の取得に失敗しました:", error?.message);
+    throw new Error("WordPress設定が見つかりません。");
+  }
+
+  this.config = {
+    id: data.id,
+    name: data.name,
+    url: data.url,
+    username: data.username,
+    applicationPassword: data.password, // ← Supabaseのカラム名が「password」の場合
+    isActive: data.is_active,
+    defaultCategory: data.default_category || "",
+  };
 }
