@@ -15,10 +15,10 @@ export interface WordPressConfig {
 
 export class WordPressService {
   private config: WordPressConfig;
+constructor() {
+  this.config = null as any; // 初期値はnull
+}
 
-  constructor(config: WordPressConfig) {
-    this.config = config;
-  }
 
   async testConnection(): Promise<boolean> {
     try {
