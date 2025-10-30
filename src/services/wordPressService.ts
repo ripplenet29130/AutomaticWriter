@@ -19,7 +19,29 @@ constructor() {
   this.config = null as any; // 初期値はnull
 }
 
+  async loadActiveConfig(): Promise<void> {
+    const { data, error } = await supabase
+      .from("wordpress_configs")
+      .select("*")
+      .eq("is_active", true)
+      .single();
 
+    if (error || !data) {
+      console.error("WordPress設定の取得に失敗しました:", error?.message);
+      throw new Error("WordPress設定が見つかりません。");
+    }
+
+    this.config = {
+      id: data.id,
+      name: data.name,
+      url: data.url,
+      username: data.username,
+      applicationPassword: data.password, // Supabase側が「password」カラムの場合
+      isActive: data.is_active,
+      defaultCategory: data.default_category || "",
+    };
+  }
+  
   async testConnection(): Promise<boolean> {
     try {
       const response = await axios.get(`${this.config.url}/wp-json/wp/v2/posts`, {
@@ -85,6 +107,9 @@ constructor() {
   }
 
   async scheduleArticle(article: Article, publishDate: Date): Promise<{ success: boolean; wordPressId?: number; error?: string }> {
+    if (!this.config) {
+    await this.loadActiveConfig();
+  }
     try {
       // HTMLタグをそのまま使用（変換不要）
       const processedContent = article.content;
@@ -299,25 +324,3 @@ export async function saveWordPressConfig(
 }
 
 
-async loadActiveConfig(): Promise<void> {
-  const { data, error } = await supabase
-    .from("wordpress_configs")
-    .select("*")
-    .eq("is_active", true)
-    .single();
-
-  if (error || !data) {
-    console.error("WordPress設定の取得に失敗しました:", error?.message);
-    throw new Error("WordPress設定が見つかりません。");
-  }
-
-  this.config = {
-    id: data.id,
-    name: data.name,
-    url: data.url,
-    username: data.username,
-    applicationPassword: data.password, // ← Supabaseのカラム名が「password」の場合
-    isActive: data.is_active,
-    defaultCategory: data.default_category || "",
-  };
-}
