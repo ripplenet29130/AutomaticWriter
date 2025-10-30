@@ -455,7 +455,8 @@ interface ScheduleEditorProps {
 
 const ScheduleEditor: React.FC<ScheduleEditorProps> = ({ config, onSave, onCancel }) => {
   const { updateWordPressConfig } = useAppStore();
-  
+  const [isSaving, setIsSaving] = useState(false);
+
   // 関数形式の初期化でデフォルト値と既存設定をマージ
   const [scheduleSettings, setScheduleSettings] = useState<ScheduleSettings>(() => {
     const defaultSettings: ScheduleSettings = {
@@ -467,12 +468,26 @@ const ScheduleEditor: React.FC<ScheduleEditorProps> = ({ config, onSave, onCance
       publishStatus: 'publish',
       titleGenerationCount: 10 // 必ず数値として初期化
     };
-    
+
     // 既存のconfig.scheduleSettingsとデフォルト設定をマージ
     return { ...defaultSettings, ...config.scheduleSettings };
   });
 
   const [keywordInput, setKeywordInput] = useState('');
+
+  // Auto-save function with debounce
+  const autoSaveSettings = async (newSettings: ScheduleSettings) => {
+    try {
+      setIsSaving(true);
+      await updateWordPressConfig(config.id, {
+        scheduleSettings: newSettings
+      });
+      setIsSaving(false);
+    } catch (error) {
+      console.error('Auto-save error:', error);
+      setIsSaving(false);
+    }
+  };
 
   const handleAddKeyword = () => {
     if (keywordInput.trim() && !scheduleSettings.targetKeywords.includes(keywordInput.trim())) {
@@ -514,6 +529,12 @@ const ScheduleEditor: React.FC<ScheduleEditorProps> = ({ config, onSave, onCance
 
   return (
     <div className="bg-gray-50 rounded-lg p-6 space-y-6">
+      {isSaving && (
+        <div className="flex items-center gap-2 text-sm text-blue-600">
+          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
+          <span>設定を保存中...</span>
+        </div>
+      )}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -521,10 +542,14 @@ const ScheduleEditor: React.FC<ScheduleEditorProps> = ({ config, onSave, onCance
           </label>
           <select
             value={scheduleSettings.frequency}
-            onChange={(e) => setScheduleSettings(prev => ({ 
-              ...prev, 
-              frequency: e.target.value as 'daily' | 'weekly' | 'monthly' 
-            }))}
+            onChange={(e) => {
+              const newSettings = {
+                ...scheduleSettings,
+                frequency: e.target.value as 'daily' | 'weekly' | 'monthly'
+              };
+              setScheduleSettings(newSettings);
+              autoSaveSettings(newSettings);
+            }}
             className="input-field"
           >
             <option value="daily">毎日</option>
@@ -541,7 +566,11 @@ const ScheduleEditor: React.FC<ScheduleEditorProps> = ({ config, onSave, onCance
           <input
             type="time"
             value={scheduleSettings.time}
-            onChange={(e) => setScheduleSettings(prev => ({ ...prev, time: e.target.value }))}
+            onChange={(e) => {
+              const newSettings = { ...scheduleSettings, time: e.target.value };
+              setScheduleSettings(newSettings);
+              autoSaveSettings(newSettings);
+            }}
             className="input-field"
           />
         </div>
@@ -552,10 +581,14 @@ const ScheduleEditor: React.FC<ScheduleEditorProps> = ({ config, onSave, onCance
           </label>
           <select
             value={scheduleSettings.publishStatus || 'publish'}
-            onChange={(e) => setScheduleSettings(prev => ({ 
-              ...prev, 
-              publishStatus: e.target.value as 'publish' | 'draft' 
-            }))}
+            onChange={(e) => {
+              const newSettings = {
+                ...scheduleSettings,
+                publishStatus: e.target.value as 'publish' | 'draft'
+              };
+              setScheduleSettings(newSettings);
+              autoSaveSettings(newSettings);
+            }}
             className="input-field"
           >
             <option value="publish">公開</option>
@@ -572,10 +605,14 @@ const ScheduleEditor: React.FC<ScheduleEditorProps> = ({ config, onSave, onCance
             min="5"
             max="20"
             value={scheduleSettings.titleGenerationCount || 10}
-            onChange={(e) => setScheduleSettings(prev => ({ 
-              ...prev, 
-              titleGenerationCount: parseInt(e.target.value) 
-            }))}
+            onChange={(e) => {
+              const newSettings = {
+                ...scheduleSettings,
+                titleGenerationCount: parseInt(e.target.value)
+              };
+              setScheduleSettings(newSettings);
+              autoSaveSettings(newSettings);
+            }}
             className="input-field"
           />
           <p className="text-xs text-gray-500 mt-1">
@@ -589,7 +626,11 @@ const ScheduleEditor: React.FC<ScheduleEditorProps> = ({ config, onSave, onCance
           <input
             type="checkbox"
             checked={scheduleSettings.isActive}
-            onChange={(e) => setScheduleSettings(prev => ({ ...prev, isActive: e.target.checked }))}
+            onChange={(e) => {
+              const newSettings = { ...scheduleSettings, isActive: e.target.checked };
+              setScheduleSettings(newSettings);
+              autoSaveSettings(newSettings);
+            }}
             className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
           />
           <span className="ml-2 text-sm font-medium text-gray-700">キーワードベース自動投稿を有効にする</span>
