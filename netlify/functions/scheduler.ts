@@ -163,7 +163,7 @@ export const handler: Handler = async () => {
 
     return { statusCode: 200, body: "Scheduler executed successfully" };
   } catch (err: any) {
-    console.error("💥 エラー:", err.message);
-    return { statusCode: 500, body: err.message };
-  }
+  console.error("💥 エラー詳細:", err);
+  return { statusCode: 500, body: JSON.stringify({ message: err.message }) };
+}
 };
