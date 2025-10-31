@@ -158,16 +158,20 @@ export const handler: Handler = async () => {
       }
 
       const { data: wp, error: wpError } = await supabase
-        .from("wordpress_configs")
-        .select("*")
-        .eq("id", schedule.wordpress_config_id)
-        .eq("is_active", true)
-        .single();
+  .from("wordpress_configs")
+  .select("*")
+  .eq("id", schedule.wordpress_config_id)
+  .eq("is_active", true)
+  .single();
 
-      if (wpError || !wp) {
-        console.log("⚠️ WordPress設定が見つかりません");
-        continue;
-      }
+if (wpError || !wp) {
+  console.log("⚠️ WordPress設定が見つかりません");
+  continue;
+}
+
+// 認証デバッグ出力（安全に）
+console.log(`🔐 認証対象: ${wp.username} @ ${wp.url}`);
+
 
       let keyword = "";
       try {
