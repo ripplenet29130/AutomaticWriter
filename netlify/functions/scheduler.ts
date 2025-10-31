@@ -120,7 +120,7 @@ export const handler: Handler = async () => {
       }
 
       const { data: wp, error: wpError } = await supabase
-        .from("wordpress_config")
+        .from("wordpress_configs")
         .select("*")
         .eq("id", schedule.wordpress_config_id)
         .eq("is_active", true)
