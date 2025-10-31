@@ -148,17 +148,21 @@ ${sectionText}
     const { apiKey, model, temperature, maxTokens } = this.config!;
     console.log("📤 Gemini呼び出し開始:", { model, temperature, maxTokens });
 
-    const response = await fetch("/.netlify/functions/gemini-proxy", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        prompt: this.buildPrompt(prompt),
-        apiKey,
-        model,
-        temperature,
-        maxTokens,
-      }),
-    });
+    const baseUrl =
+  process.env.URL || process.env.DEPLOY_URL || "http://localhost:8888"; // Netlify環境対応
+
+const response = await fetch(`${baseUrl}/.netlify/functions/gemini-proxy`, {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({
+    prompt: this.buildPrompt(prompt),
+    apiKey: this.config!.apiKey,
+    model: this.config!.model,
+    temperature: this.config!.temperature,
+    maxTokens: this.config!.maxTokens,
+  }),
+});
+
 
     if (!response.ok) throw new Error(`Gemini APIエラー: ${response.status}`);
     const data = await response.json();
