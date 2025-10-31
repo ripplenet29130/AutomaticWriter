@@ -88,20 +88,22 @@ function isWithinOneMinute(targetTime: string): boolean {
   if (!targetTime) return false;
   const [h, m] = targetTime.split(":").map(Number);
 
-  // JST（UTC+9）
+  // 現在時刻（JST）
   const now = new Date();
   const jstNow = new Date(now.getTime() + 9 * 60 * 60 * 1000);
   console.log("🕒 現在時刻(JST):", jstNow.toISOString());
 
+  // SupabaseのtimeをJSTとして扱う
   const target = new Date(jstNow);
   target.setHours(h, m, 0, 0);
-  console.log("🎯 目標時刻:", target.toISOString());
+  console.log("🎯 目標時刻(JST):", target.toISOString());
 
   const diff = Math.abs(jstNow.getTime() - target.getTime());
   console.log("⏱ 差(秒):", diff / 1000);
-  
-  return diff <= 90 * 1000; // ← ここを60秒から90秒に拡大
+
+  return diff <= 90 * 1000;
 }
+
 
 
 // === メイン処理 ===
