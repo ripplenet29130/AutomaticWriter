@@ -8,4 +8,4 @@
 
 # scheduler.ts を毎分実行（テスト）
 [functions."scheduler"]
-  schedule = "*/1 * * * *"
+  schedule = "*/15 * * * *"
