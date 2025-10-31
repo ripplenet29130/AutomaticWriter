@@ -91,18 +91,24 @@ function isWithinOneMinute(targetTime: string): boolean {
   // 現在時刻（JST）
   const now = new Date();
   const jstNow = new Date(now.getTime() + 9 * 60 * 60 * 1000);
-  console.log("🕒 現在時刻(JST):", jstNow.toISOString());
 
-  // SupabaseのtimeをJSTとして扱う
+  // Supabase の time を「日本時間」として扱う
   const target = new Date(jstNow);
   target.setHours(h, m, 0, 0);
-  console.log("🎯 目標時刻(JST):", target.toISOString());
+
+  // ← ここで JST → UTC 補正を外さないようにする！
+  // target.setHours(target.getHours() - 9); ←これを削除
+
+  // デバッグ出力（実際の日本時間を見たい場合）
+  console.log("🕒 現在時刻(JST):", jstNow.toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" }));
+  console.log("🎯 目標時刻(JST):", target.toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" }));
 
   const diff = Math.abs(jstNow.getTime() - target.getTime());
   console.log("⏱ 差(秒):", diff / 1000);
 
   return diff <= 90 * 1000;
 }
+
 
 
 
