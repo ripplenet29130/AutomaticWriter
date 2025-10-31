@@ -1,76 +1,133 @@
+import { Handler } from "@netlify/functions";
 import { createClient } from "@supabase/supabase-js";
+import fetch from "node-fetch";
 
-// === Supabaseクライアント作成 ===
+// === 環境変数 ===
 const supabase = createClient(
   process.env.SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_KEY!
 );
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY!;
 
-// === メイン関数 ===
-export const handler = async (event: any) => {
+// === AI記事生成 ===
+async function generateArticle(keyword: string) {
+  const prompt = `次のキーワード「${keyword}」について日本語でSEO記事を作成してください。
+・タイトルは読者の関心を引くものにしてください。
+・本文は500〜700文字で、見出しと段落を含めてください。`;
+
+  const response = await fetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${OPENAI_API_KEY}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: "gpt-4o-mini",
+      messages: [{ role: "user", content: prompt }],
+      temperature: 0.8,
+    }),
+  });
+
+  const data = await response.json();
+  const content = data.choices?.[0]?.message?.content || "";
+  const title = content.split("\n")[0].replace(/^#\s*/, ""); // 最初の見出しをタイトル扱い
+  return { title, content };
+}
+
+// === WordPress投稿 ===
+async function postToWordPress(config: any, article: { title: string; content: string }) {
+  const url = `${config.url}/wp-json/wp/v2/posts`;
+  const auth = Buffer.from(`${config.username}:${config.password}`).toString("base64");
+
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Authorization": `Basic ${auth}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      title: article.title,
+      content: article.content,
+      status: "publish",
+      categories: config.category ? [Number(config.category)] : [],
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`WordPress投稿失敗: ${response.status} ${await response.text()}`);
+  }
+  return response.json();
+}
+
+// === メイン処理 ===
+export const handler: Handler = async () => {
   try {
-    console.log("✅ Scheduler function triggered.");
+    console.log("✅ スケジューラー起動");
 
-    // スケジュール設定を取得
+    // 有効スケジュールを取得
     const { data: schedules, error } = await supabase
       .from("schedule_settings")
-      .select("*")
+      .select("*, wordpress_config_id")
       .eq("enabled", true);
 
-    if (error) {
-      console.error("❌ Supabase取得エラー:", error.message);
-      return {
-        statusCode: 500,
-        body: JSON.stringify({ message: "Supabase取得に失敗しました" }),
-      };
+    if (error || !schedules?.length) {
+      console.log("⏹ スケジュールなし");
+      return { statusCode: 200, body: "No active schedules" };
     }
 
-    if (!schedules || schedules.length === 0) {
-      console.log("⏹ 有効なスケジュール設定がありません。");
-      return {
-        statusCode: 200,
-        body: JSON.stringify({ message: "スケジュールなし" }),
-      };
+    for (const schedule of schedules) {
+      // 紐づくWordPress設定を取得
+      const { data: wp } = await supabase
+        .from("wordpress_config")
+        .select("*")
+        .eq("id", schedule.wordpress_config_id)
+        .eq("is_active", true)
+        .maybeSingle();
+
+      if (!wp) continue;
+
+      // キーワード抽出
+      const keywords = schedule.keyword
+        ?.split(",")
+        .map((k: string) => k.trim())
+        .filter(Boolean);
+
+      if (!keywords?.length) continue;
+
+      const keyword = keywords[Math.floor(Math.random() * keywords.length)];
+      console.log(`🎯 選択キーワード: ${keyword}`);
+
+      // AI記事生成
+      const article = await generateArticle(keyword);
+
+      // WordPress投稿
+      const wpPost = await postToWordPress(wp, article);
+
+      // 投稿結果をarticlesに記録
+      await supabase.from("articles").insert({
+        title: article.title,
+        content: article.content,
+        category: wp.category,
+        wordpress_config_id: wp.id,
+        wordpress_post_id: wpPost.id.toString(),
+        status: "published",
+        created_at: new Date().toISOString(),
+      });
+
+      console.log(`✅ 投稿完了: ${wpPost.link}`);
+
+      // 使用済みキーワードを更新（任意で）
+      const usedList = schedule.used_keywords || [];
+      usedList.push(keyword);
+      await supabase
+        .from("schedule_settings")
+        .update({ used_keywords: usedList })
+        .eq("id", schedule.id);
     }
 
-    // 現在時刻（日本時間）
-    const now = new Date();
-    const hours = now.getHours().toString().padStart(2, "0");
-    const minutes = now.getMinutes().toString().padStart(2, "0");
-    const currentTime = `${hours}:${minutes}`;
-
-    console.log("🕒 現在時刻:", currentTime);
-
-    // 時刻が一致するスケジュールを抽出
-    const matched = schedules.filter((s) => s.time === currentTime);
-
-    if (matched.length === 0) {
-      console.log("⚪ 投稿時刻が一致するスケジュールはありません。");
-      return {
-        statusCode: 200,
-        body: JSON.stringify({ message: "一致するスケジュールなし" }),
-      };
-    }
-
-    // 投稿処理を実行（例：WordPressへの投稿関数を呼ぶ）
-    for (const schedule of matched) {
-      console.log(`🚀 投稿実行: ${schedule.wordpress_id} at ${schedule.time}`);
-
-      // TODO: WordPress投稿ロジックを呼び出す
-      // await postToWordPress(schedule);
-    }
-
-    return {
-      statusCode: 200,
-      body: JSON.stringify({
-        message: `${matched.length} 件のスケジュールを処理しました`,
-      }),
-    };
-  } catch (e) {
-    console.error("💥 予期せぬエラー:", e);
-    return {
-      statusCode: 500,
-      body: JSON.stringify({ message: "サーバーエラー", error: e }),
-    };
+    return { statusCode: 200, body: "Auto-post completed" };
+  } catch (err: any) {
+    console.error("💥 エラー:", err.message);
+    return { statusCode: 500, body: err.message };
   }
 };
