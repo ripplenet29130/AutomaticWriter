@@ -1,10 +1,8 @@
-
 import { Handler } from "@netlify/functions";
 import { createClient } from "@supabase/supabase-js";
-import { AIService } from "../../src/services/aiService"; // ★ 追加
+import { AIService } from "../../src/services/aiService";
 
 process.env.TZ = "Asia/Tokyo"; // JST固定
-
 
 // === Supabase接続 ===
 const supabase = createClient(
@@ -17,11 +15,9 @@ function isWithinOneMinute(targetTime: string): boolean {
   if (!targetTime) return false;
   const [h, m] = targetTime.split(":").map(Number);
 
-  // 現在時刻（NetlifyはTZ=Asia/Tokyoを指定済み）
   const now = new Date();
   console.log("🕒 現在時刻(JST):", now.toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" }));
 
-  // SupabaseのtimeをJSTとして扱う
   const target = new Date();
   target.setHours(h, m, 0, 0);
   console.log("🎯 目標時刻(JST):", target.toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" }));
@@ -90,7 +86,7 @@ export const handler: Handler = async () => {
   console.log("✅ スケジューラー起動");
 
   try {
-    // --- スケジュール取得 ---
+    // --- 有効スケジュール取得 ---
     const { data: schedules, error: scheduleError } = await supabase
       .from("schedule_settings")
       .select("*, wordpress_config_id")
@@ -99,78 +95,79 @@ export const handler: Handler = async () => {
     if (scheduleError) throw new Error("スケジュール取得失敗: " + scheduleError.message);
     if (!schedules?.length) return { statusCode: 200, body: "No active schedules" };
 
-    const aiService = new AIService();
+    // --- 現在時刻に該当するスケジュールのみ抽出 ---
+    const available = schedules.filter(s => isWithinOneMinute(s.time));
+    if (available.length === 0)
+      return { statusCode: 200, body: "⏸ 条件に合うスケジュールはありません" };
 
-    for (const schedule of schedules) {
-  if (!isWithinOneMinute(schedule.time)) continue;
+    // --- ✅ ランダムに1件だけ選択 ---
+    const schedule = available[Math.floor(Math.random() * available.length)];
+    console.log(`🎯 今回選ばれたスケジュール: ID ${schedule.id} (${schedule.time})`);
 
-  // --- WordPress設定取得 ---
-  const { data: wp, error: wpError } = await supabase
-    .from("wordpress_configs")
-    .select("*")
-    .eq("id", schedule.wordpress_config_id)
-    .eq("is_active", true)
-    .single();
+    // --- WordPress設定取得 ---
+    const { data: wp, error: wpError } = await supabase
+      .from("wordpress_configs")
+      .select("*")
+      .eq("id", schedule.wordpress_config_id)
+      .eq("is_active", true)
+      .single();
 
-  if (wpError || !wp) {
-    console.log(`⚠️ WordPress設定が見つかりません (ID: ${schedule.wordpress_config_id})`);
-    continue;
-  }
-
-  console.log(`🌐 投稿先サイト: ${wp.sitename || "(名称未設定)"} → ${wp.url}`);
-
-  // --- ✅ キーワードをランダムに1つだけ抽出 ---
-  let keyword = "最新情報";
-  try {
-    if (Array.isArray(schedule.keywords)) {
-      keyword = schedule.keywords[Math.floor(Math.random() * schedule.keywords.length)];
-    } else if (typeof schedule.keywords === "string") {
-      const arr = JSON.parse(schedule.keywords);
-      keyword = arr[Math.floor(Math.random() * arr.length)];
+    if (wpError || !wp) {
+      console.log(`⚠️ WordPress設定が見つかりません (ID: ${schedule.wordpress_config_id})`);
+      return { statusCode: 200, body: "No valid WordPress config" };
     }
-  } catch {
-    keyword = String(schedule.keywords || "最新情報");
-  }
 
-  console.log(`🎯 今回選ばれたキーワード: ${keyword}`);
+    console.log(`🌐 投稿先サイト: ${wp.sitename || "(名称未設定)"} → ${wp.url}`);
 
-  // --- ✅ ここで1記事のみ生成 ---
-  const prompt = {
-    topic: keyword,
-    keywords: [keyword],
-    tone: "friendly",
-    length: "medium",
-    includeIntroduction: true,
-    includeConclusion: true,
-    includeSources: false,
-  };
+    // --- ✅ キーワードをランダムに1つだけ選択 ---
+    let keyword = "最新情報";
+    try {
+      if (Array.isArray(schedule.keywords)) {
+        keyword = schedule.keywords[Math.floor(Math.random() * schedule.keywords.length)];
+      } else if (typeof schedule.keywords === "string") {
+        const arr = JSON.parse(schedule.keywords);
+        keyword = arr[Math.floor(Math.random() * arr.length)];
+      }
+    } catch {
+      keyword = String(schedule.keywords || "最新情報");
+    }
 
-  const article = await aiService.generateArticle(prompt);
-  console.log("✅ 記事生成完了:", article.title);
+    console.log(`🧩 今回選ばれたキーワード: ${keyword}`);
 
-  // --- WordPress投稿 ---
-  const wpPost = await postToWordPress(wp, article);
-  console.log("📰 投稿完了:", wpPost.link);
+    // --- ✅ 記事生成 ---
+    const aiService = new AIService();
+    const prompt = {
+      topic: keyword,
+      keywords: [keyword],
+      tone: "friendly",
+      length: "medium",
+      includeIntroduction: true,
+      includeConclusion: true,
+      includeSources: false,
+    };
 
-  // --- Supabase保存 ---
-  const { error: insertError } = await supabase.from("articles").insert({
-    title: article.title,
-    content: article.content,
-    category: wp.category,
-    wordpress_config_id: wp.id,
-    wordpress_post_id: String(wpPost.id),
-    status: "published",
-    created_at: new Date().toISOString(),
-  });
+    const article = await aiService.generateArticle(prompt);
+    console.log("✅ 記事生成完了:", article.title);
 
-  if (insertError)
-    throw new Error("記事保存失敗: " + insertError.message);
+    // --- WordPress投稿 ---
+    const wpPost = await postToWordPress(wp, article);
+    console.log("📰 投稿完了:", wpPost.link);
 
-  // ✅ ← この位置でループ終了（1記事だけ）
-  break;
-}
+    // --- Supabase保存 ---
+    const { error: insertError } = await supabase.from("articles").insert({
+      title: article.title,
+      content: article.content,
+      category: wp.category,
+      wordpress_config_id: wp.id,
+      wordpress_post_id: String(wpPost.id),
+      status: "published",
+      created_at: new Date().toISOString(),
+    });
 
-    return { statusCode: 200, body: "Scheduler executed successfully" };
+    if (insertError) throw new Error("記事保存失敗: " + insertError.message);
+
+    console.log("💾 Supabaseへ保存完了");
+    return { statusCode: 200, body: "✅ 1記事のみ投稿完了" };
   } catch (err: any) {
     console.error("💥 エラー詳細:", err);
     return { statusCode: 500, body: JSON.stringify({ message: err.message }) };
