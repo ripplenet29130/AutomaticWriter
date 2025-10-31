@@ -8,3 +8,7 @@
 
   [functions."*"]
     timeout = 26
+
+[[scheduled]]
+path = "/.netlify/functions/scheduler"
+schedule = "*/1 * * * *"
