@@ -72,15 +72,21 @@ async function postToWordPress(config: any, article: { title: string; content: s
   return response.json();
 }
 
-// === 時刻判定（±1分の許容） ===
+// === 時刻判定（±1分の許容・日本時間対応） ===
 function isWithinOneMinute(targetTime: string): boolean {
   const [h, m] = targetTime.split(":").map(Number);
+
+  // 現在時刻をJSTに変換（UTC +9時間）
   const now = new Date();
-  const target = new Date();
+  const jstNow = new Date(now.getTime() + 9 * 60 * 60 * 1000);
+
+  const target = new Date(jstNow);
   target.setHours(h, m, 0, 0);
-  const diff = Math.abs(now.getTime() - target.getTime());
-  return diff <= 60 * 1000; // ±1分以内
+
+  const diff = Math.abs(jstNow.getTime() - target.getTime());
+  return diff <= 60 * 1000; // ±1分以内なら実行
 }
+
 
 // === メイン処理 ===
 export const handler: Handler = async () => {
