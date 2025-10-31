@@ -1,6 +1,5 @@
 import { Handler } from "@netlify/functions";
 import { createClient } from "@supabase/supabase-js";
-import fetch from "node-fetch";
 
 // === 環境変数 ===
 const supabase = createClient(
