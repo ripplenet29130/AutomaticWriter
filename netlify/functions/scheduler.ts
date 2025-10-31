@@ -1,5 +1,8 @@
+import fetch from "node-fetch";
 import { Handler } from "@netlify/functions";
 import { createClient } from "@supabase/supabase-js";
+
+process.env.TZ = "Asia/Tokyo"; // JSTに固定
 
 // === Supabase接続 ===
 const supabase = createClient(
@@ -15,14 +18,14 @@ async function generateArticle(keyword: string) {
 次のキーワード「${keyword}」に関する記事を作成してください。
 
 条件:
-- タイトルは1行で魅力的に（読者がクリックしたくなるように）
+- タイトルは1行で魅力的に
 - 本文は見出し(H2)と段落を含み、全体で700〜900文字程度
 - 文体は「です・ます調」
-- 最後に読者へ行動を促す一文を加える
+- 最後に行動を促す一文を加える
 `;
 
   const response = await fetch(
-    "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent",
+    "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-latest:generateContent",
     {
       method: "POST",
       headers: {
@@ -36,11 +39,12 @@ async function generateArticle(keyword: string) {
   );
 
   if (!response.ok) {
-    throw new Error(`Gemini APIエラー: ${response.status} ${await response.text()}`);
+    const errorText = await response.text();
+    throw new Error(`Gemini APIエラー: ${response.status} ${errorText}`);
   }
 
   const data = await response.json();
-  const content = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+  const content = data?.candidates?.[0]?.content?.parts?.[0]?.text || "";
   const titleMatch = content.match(/^#?\s*(.+?)\n/);
   const title = titleMatch ? titleMatch[1] : `${keyword}に関する最新情報`;
 
@@ -52,97 +56,99 @@ async function postToWordPress(config: any, article: { title: string; content: s
   const url = `${config.url}/wp-json/wp/v2/posts`;
   const auth = Buffer.from(`${config.username}:${config.password}`).toString("base64");
 
+  const body = {
+    title: article.title,
+    content: article.content,
+    status: "publish",
+  };
+
+  if (config.category) {
+    body["categories"] = [Number(config.category)];
+  }
+
   const response = await fetch(url, {
     method: "POST",
     headers: {
-      "Authorization": `Basic ${auth}`,
+      Authorization: `Basic ${auth}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({
-      title: article.title,
-      content: article.content,
-      status: "publish",
-      categories: config.category ? [Number(config.category)] : [],
-    }),
+    body: JSON.stringify(body),
   });
 
   if (!response.ok) {
-    throw new Error(`WordPress投稿失敗: ${response.status} ${await response.text()}`);
+    const errorText = await response.text();
+    throw new Error(`WordPress投稿失敗: ${response.status} ${errorText}`);
   }
+
   return response.json();
 }
 
-// === 時刻判定（±1分の許容・日本時間対応） ===
+// === JST時刻判定 ===
 function isWithinOneMinute(targetTime: string): boolean {
+  if (!targetTime) return false;
   const [h, m] = targetTime.split(":").map(Number);
-
-  // 現在時刻をJSTに変換（UTC +9時間）
   const now = new Date();
   const jstNow = new Date(now.getTime() + 9 * 60 * 60 * 1000);
-
   const target = new Date(jstNow);
   target.setHours(h, m, 0, 0);
-
   const diff = Math.abs(jstNow.getTime() - target.getTime());
-  return diff <= 60 * 1000; // ±1分以内なら実行
+  return diff <= 60 * 1000;
 }
-
 
 // === メイン処理 ===
 export const handler: Handler = async () => {
   console.log("✅ スケジューラー起動");
 
   try {
-    // スケジュール設定を取得
     const { data: schedules, error } = await supabase
       .from("schedule_settings")
       .select("*, wordpress_config_id")
       .eq("enabled", true);
 
-    if (error || !schedules?.length) {
-      console.log("⏹ スケジュールなし");
-      return { statusCode: 200, body: "No active schedules" };
-    }
+    if (error) throw new Error("スケジュール取得失敗: " + error.message);
+    if (!schedules?.length) return { statusCode: 200, body: "No active schedules" };
 
     for (const schedule of schedules) {
       if (!isWithinOneMinute(schedule.time)) {
-        console.log(`⏸ スキップ: ${schedule.time} は現在時刻と一致しません`);
+        console.log(`⏸ ${schedule.time} は現在時刻と一致しないためスキップ`);
         continue;
       }
 
-      // WordPress設定を取得
-      const { data: wp } = await supabase
-        .from("wordpress_configs")
+      const { data: wp, error: wpError } = await supabase
+        .from("wordpress_config")
         .select("*")
         .eq("id", schedule.wordpress_config_id)
         .eq("is_active", true)
-        .maybeSingle();
+        .single();
 
-      if (!wp) {
+      if (wpError || !wp) {
         console.log("⚠️ WordPress設定が見つかりません");
         continue;
       }
 
-      // キーワード選択
-      const keywords = schedule.keywords || [];
-      const keyword = Array.isArray(keywords)
-        ? keywords[Math.floor(Math.random() * keywords.length)]
-        : String(keywords).split(",")[0];
-      console.log(`🎯 選択キーワード: ${keyword}`);
+      let keyword = "";
+      try {
+        if (Array.isArray(schedule.keywords)) {
+          keyword = schedule.keywords[Math.floor(Math.random() * schedule.keywords.length)];
+        } else if (typeof schedule.keywords === "string") {
+          const arr = JSON.parse(schedule.keywords);
+          keyword = arr[Math.floor(Math.random() * arr.length)];
+        }
+      } catch {
+        keyword = String(schedule.keywords || "最新情報");
+      }
 
-      // AI記事生成
+      console.log(`🎯 キーワード: ${keyword}`);
+
       const article = await generateArticle(keyword);
-
-      // WordPress投稿
       const wpPost = await postToWordPress(wp, article);
 
-      // Supabaseに記録
       await supabase.from("articles").insert({
         title: article.title,
         content: article.content,
         category: wp.category,
         wordpress_config_id: wp.id,
-        wordpress_post_id: wpPost.id.toString(),
+        wordpress_post_id: String(wpPost.id),
         status: "published",
         created_at: new Date().toISOString(),
       });
