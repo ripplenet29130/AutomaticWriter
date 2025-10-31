@@ -9,28 +9,43 @@ const supabase = createClient(
 );
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY!;
 
-// === AI記事生成 ===
+// === Gemini（Google AI）による記事生成 ===
 async function generateArticle(keyword: string) {
-  const prompt = `次のキーワード「${keyword}」について日本語でSEO記事を作成してください。
-・タイトルは読者の関心を引くものにしてください。
-・本文は500〜700文字で、見出しと段落を含めてください。`;
+  const GEMINI_API_KEY = process.env.GEMINI_API_KEY!;
+  const prompt = `
+あなたはSEOに詳しい日本語のWebライターです。
+次のキーワード「${keyword}」に関する記事を作成してください。
 
-  const response = await fetch("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      "Authorization": `Bearer ${OPENAI_API_KEY}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model: "gpt-4o-mini",
-      messages: [{ role: "user", content: prompt }],
-      temperature: 0.8,
-    }),
-  });
+条件:
+- タイトルは1行で、魅力的で検索されやすいものにする
+- 本文は見出し(H2)と段落を含み、全体で700〜900文字程度
+- です・ます調
+- 結論で読者に行動を促す内容にする
+`;
+
+  const response = await fetch(
+    "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent",
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-goog-api-key": GEMINI_API_KEY,
+      },
+      body: JSON.stringify({
+        contents: [{ role: "user", parts: [{ text: prompt }] }],
+      }),
+    }
+  );
+
+  if (!response.ok) {
+    throw new Error(`Gemini APIエラー: ${response.status} ${await response.text()}`);
+  }
 
   const data = await response.json();
-  const content = data.choices?.[0]?.message?.content || "";
-  const title = content.split("\n")[0].replace(/^#\s*/, ""); // 最初の見出しをタイトル扱い
+  const content = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+  const titleMatch = content.match(/^#?\s*(.+?)\n/);
+  const title = titleMatch ? titleMatch[1] : `${keyword}に関する最新情報`;
+
   return { title, content };
 }
 
