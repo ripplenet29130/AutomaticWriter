@@ -57,14 +57,43 @@ async function postToWordPress(config: any, article: { title: string; content: s
   const url = `${config.url}/wp-json/wp/v2/posts`;
   const auth = Buffer.from(`${config.username}:${config.password}`).toString("base64");
 
-  const body = {
+  let categoryIds: number[] = [];
+
+  if (config.category) {
+    // スラッグまたはカテゴリー名から ID を取得
+    const categorySlug = encodeURIComponent(config.category.trim());
+    const catRes = await fetch(
+      `${config.url}/wp-json/wp/v2/categories?slug=${categorySlug}`,
+      { headers: { Authorization: `Basic ${auth}` } }
+    );
+
+    let catData = await catRes.json();
+
+    // スラッグで見つからなければ名前検索
+    if (!Array.isArray(catData) || catData.length === 0) {
+      const nameRes = await fetch(
+        `${config.url}/wp-json/wp/v2/categories?search=${categorySlug}`,
+        { headers: { Authorization: `Basic ${auth}` } }
+      );
+      catData = await nameRes.json();
+    }
+
+    if (Array.isArray(catData) && catData.length > 0) {
+      categoryIds = [catData[0].id];
+      console.log(`✅ カテゴリ '${config.category}' → ID ${catData[0].id}`);
+    } else {
+      console.warn(`⚠️ カテゴリ '${config.category}' が見つかりません`);
+    }
+  }
+
+  const body: any = {
     title: article.title,
     content: article.content,
     status: "publish",
   };
 
-  if (config.category) {
-    body["categories"] = [Number(config.category)];
+  if (categoryIds.length > 0) {
+    body["categories"] = categoryIds;
   }
 
   const response = await fetch(url, {
@@ -83,6 +112,7 @@ async function postToWordPress(config: any, article: { title: string; content: s
 
   return response.json();
 }
+
 
 // === JST時刻判定 ===
 function isWithinOneMinute(targetTime: string): boolean {
