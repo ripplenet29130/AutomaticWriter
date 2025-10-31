@@ -5,11 +5,9 @@
 
 [functions]
   node_bundler = "esbuild"
-
-[functions."*"]
   timeout = 26
 
-# ✅ スケジューラー設定
+# ✅ スケジューラー設定（個別関数）
 [[functions]]
   name = "scheduler"
   schedule = "*/1 * * * *"
