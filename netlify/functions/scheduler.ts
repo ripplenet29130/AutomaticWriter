@@ -87,13 +87,18 @@ async function postToWordPress(config: any, article: { title: string; content: s
 function isWithinOneMinute(targetTime: string): boolean {
   if (!targetTime) return false;
   const [h, m] = targetTime.split(":").map(Number);
+
+  // JST（UTC+9）
   const now = new Date();
   const jstNow = new Date(now.getTime() + 9 * 60 * 60 * 1000);
+
   const target = new Date(jstNow);
   target.setHours(h, m, 0, 0);
+
   const diff = Math.abs(jstNow.getTime() - target.getTime());
-  return diff <= 60 * 1000;
+  return diff <= 90 * 1000; // ← ここを60秒から90秒に拡大
 }
+
 
 // === メイン処理 ===
 export const handler: Handler = async () => {
