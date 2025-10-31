@@ -1,118 +1,16 @@
 
 import { Handler } from "@netlify/functions";
 import { createClient } from "@supabase/supabase-js";
+import { AIService } from "../../src/services/aiService"; // ★ 追加
 
-process.env.TZ = "Asia/Tokyo"; // JSTに固定
+process.env.TZ = "Asia/Tokyo"; // JST固定
+
 
 // === Supabase接続 ===
 const supabase = createClient(
   process.env.SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_KEY!
 );
-
-// === Gemini 2.0 Flash による記事生成 ===
-async function generateArticle(keyword: string) {
-  const GEMINI_API_KEY = process.env.GEMINI_API_KEY!;
-  const prompt = `
-あなたはSEOに詳しい日本語のWebライターです。
-次のキーワード「${keyword}」に関する記事を作成してください。
-
-条件:
-- タイトルは1行で魅力的に
-- 本文は見出し(H2)と段落を含み、全体で700〜900文字程度
-- 文体は「です・ます調」
-- 最後に行動を促す一文を加える
-`;
-
-  const response = await fetch(
-  "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent",
-  {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-goog-api-key": GEMINI_API_KEY,
-    },
-    body: JSON.stringify({
-      contents: [{ role: "user", parts: [{ text: prompt }] }],
-    }),
-  }
-);
-
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`Gemini APIエラー: ${response.status} ${errorText}`);
-  }
-
-  const data = await response.json();
-  const content = data?.candidates?.[0]?.content?.parts?.[0]?.text || "";
-  const titleMatch = content.match(/^#?\s*(.+?)\n/);
-  const title = titleMatch ? titleMatch[1] : `${keyword}に関する最新情報`;
-
-  return { title, content };
-}
-
-// === WordPress投稿 ===
-async function postToWordPress(config: any, article: { title: string; content: string }) {
-  const url = `${config.url}/wp-json/wp/v2/posts`;
-  const auth = Buffer.from(`${config.username}:${config.password}`).toString("base64");
-
-  let categoryIds: number[] = [];
-
-  if (config.category) {
-    // スラッグまたはカテゴリー名から ID を取得
-    const categorySlug = encodeURIComponent(config.category.trim());
-    const catRes = await fetch(
-      `${config.url}/wp-json/wp/v2/categories?slug=${categorySlug}`,
-      { headers: { Authorization: `Basic ${auth}` } }
-    );
-
-    let catData = await catRes.json();
-
-    // スラッグで見つからなければ名前検索
-    if (!Array.isArray(catData) || catData.length === 0) {
-      const nameRes = await fetch(
-        `${config.url}/wp-json/wp/v2/categories?search=${categorySlug}`,
-        { headers: { Authorization: `Basic ${auth}` } }
-      );
-      catData = await nameRes.json();
-    }
-
-    if (Array.isArray(catData) && catData.length > 0) {
-      categoryIds = [catData[0].id];
-      console.log(`✅ カテゴリ '${config.category}' → ID ${catData[0].id}`);
-    } else {
-      console.warn(`⚠️ カテゴリ '${config.category}' が見つかりません`);
-    }
-  }
-
-  const body: any = {
-    title: article.title,
-    content: article.content,
-    status: "publish",
-  };
-
-  if (categoryIds.length > 0) {
-    body["categories"] = categoryIds;
-  }
-
-  const response = await fetch(url, {
-    method: "POST",
-    headers: {
-      Authorization: `Basic ${auth}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(body),
-  });
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`WordPress投稿失敗: ${response.status} ${errorText}`);
-  }
-
-  return response.json();
-}
-
 
 // === JST時刻判定 ===
 function isWithinOneMinute(targetTime: string): boolean {
@@ -134,45 +32,94 @@ function isWithinOneMinute(targetTime: string): boolean {
   return diff <= 90 * 1000;
 }
 
+// === WordPress投稿 ===
+async function postToWordPress(config: any, article: { title: string; content: string }) {
+  const url = `${config.url}/wp-json/wp/v2/posts`;
+  const auth = Buffer.from(`${config.username}:${config.password}`).toString("base64");
 
+  let categoryIds: number[] = [];
 
+  if (config.category) {
+    const categorySlug = encodeURIComponent(config.category.trim());
+    const catRes = await fetch(`${config.url}/wp-json/wp/v2/categories?slug=${categorySlug}`, {
+      headers: { Authorization: `Basic ${auth}` },
+    });
+    let catData = await catRes.json();
 
+    if (!Array.isArray(catData) || catData.length === 0) {
+      const nameRes = await fetch(`${config.url}/wp-json/wp/v2/categories?search=${categorySlug}`, {
+        headers: { Authorization: `Basic ${auth}` },
+      });
+      catData = await nameRes.json();
+    }
+
+    if (Array.isArray(catData) && catData.length > 0) {
+      categoryIds = [catData[0].id];
+      console.log(`✅ カテゴリ '${config.category}' → ID ${catData[0].id}`);
+    } else {
+      console.warn(`⚠️ カテゴリ '${config.category}' が見つかりません`);
+    }
+  }
+
+  const body: any = {
+    title: article.title,
+    content: article.content,
+    status: "publish",
+  };
+  if (categoryIds.length > 0) body.categories = categoryIds;
+
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {
+      Authorization: `Basic ${auth}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`WordPress投稿失敗: ${response.status} ${errorText}`);
+  }
+
+  return response.json();
+}
 
 // === メイン処理 ===
 export const handler: Handler = async () => {
   console.log("✅ スケジューラー起動");
 
   try {
-    const { data: schedules, error } = await supabase
+    // --- スケジュール取得 ---
+    const { data: schedules, error: scheduleError } = await supabase
       .from("schedule_settings")
       .select("*, wordpress_config_id")
       .eq("enabled", true);
 
-    if (error) throw new Error("スケジュール取得失敗: " + error.message);
+    if (scheduleError) throw new Error("スケジュール取得失敗: " + scheduleError.message);
     if (!schedules?.length) return { statusCode: 200, body: "No active schedules" };
 
+    const aiService = new AIService();
+
     for (const schedule of schedules) {
-      if (!isWithinOneMinute(schedule.time)) {
-        console.log(`⏸ ${schedule.time} は現在時刻と一致しないためスキップ`);
+      if (!isWithinOneMinute(schedule.time)) continue;
+
+      // --- WordPress設定取得 ---
+      const { data: wp, error: wpError } = await supabase
+        .from("wordpress_configs")
+        .select("*")
+        .eq("id", schedule.wordpress_config_id)
+        .eq("is_active", true)
+        .single();
+
+      if (wpError || !wp) {
+        console.log(`⚠️ WordPress設定が見つかりません (ID: ${schedule.wordpress_config_id})`);
         continue;
       }
 
-      const { data: wp, error: wpError } = await supabase
-  .from("wordpress_configs")
-  .select("*")
-  .eq("id", schedule.wordpress_config_id)
-  .eq("is_active", true)
-  .single();
+      console.log(`🌐 投稿先サイト: ${wp.sitename || "(名称未設定)"} → ${wp.url}`);
 
-if (wpError || !wp) {
-  console.log("⚠️ WordPress設定が見つかりません");
-  continue;
-}
-
-// 認証デバッグ出力（安全に）
-console.log(`🔐 認証対象: ${wp.username} @ ${wp.url}`);
-
-
+      // --- キーワード抽出 ---
       let keyword = "";
       try {
         if (Array.isArray(schedule.keywords)) {
@@ -187,10 +134,26 @@ console.log(`🔐 認証対象: ${wp.username} @ ${wp.url}`);
 
       console.log(`🎯 キーワード: ${keyword}`);
 
-      const article = await generateArticle(keyword);
-      const wpPost = await postToWordPress(wp, article);
+      // --- 記事生成 ---
+      const prompt = {
+        topic: keyword,
+        keywords: [keyword],
+        tone: "friendly",
+        length: "medium",
+        includeIntroduction: true,
+        includeConclusion: true,
+        includeSources: false,
+      };
 
-      await supabase.from("articles").insert({
+      const article = await aiService.generateArticle(prompt);
+      console.log("✅ 記事生成完了:", article.title);
+
+      // --- WordPress投稿 ---
+      const wpPost = await postToWordPress(wp, article);
+      console.log("📰 投稿完了:", wpPost.link);
+
+      // --- Supabase保存 ---
+      const { error: insertError } = await supabase.from("articles").insert({
         title: article.title,
         content: article.content,
         category: wp.category,
@@ -200,12 +163,13 @@ console.log(`🔐 認証対象: ${wp.username} @ ${wp.url}`);
         created_at: new Date().toISOString(),
       });
 
-      console.log(`✅ 投稿完了: ${wpPost.link}`);
+      if (insertError)
+        throw new Error("記事保存失敗: " + insertError.message);
     }
 
     return { statusCode: 200, body: "Scheduler executed successfully" };
   } catch (err: any) {
-  console.error("💥 エラー詳細:", err);
-  return { statusCode: 500, body: JSON.stringify({ message: err.message }) };
-}
+    console.error("💥 エラー詳細:", err);
+    return { statusCode: 500, body: JSON.stringify({ message: err.message }) };
+  }
 };
