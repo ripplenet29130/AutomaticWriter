@@ -5,8 +5,7 @@
 
 [functions]
   node_bundler = "esbuild"
-  timeout = 26
 
-# ✅ スケジューラー設定（scheduler.ts を毎分実行）
-[functions.scheduler]
+# scheduler.ts を毎分実行（テスト）
+[functions."scheduler"]
   schedule = "*/1 * * * *"
