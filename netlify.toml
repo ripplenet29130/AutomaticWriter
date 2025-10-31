@@ -8,5 +8,5 @@
 
 # === scheduler.ts の自動実行設定 ===
 [[scheduled]]
-  cron = "*/1 * * * *"     # ← 15分ごとに自動実行（テスト用）
+  cron = "0/1 * * * *"     # ← 15分ごとに自動実行（テスト用）
   function = "scheduler"    # ← 実行対象のFunction名（拡張子不要）
