@@ -102,70 +102,73 @@ export const handler: Handler = async () => {
     const aiService = new AIService();
 
     for (const schedule of schedules) {
-      if (!isWithinOneMinute(schedule.time)) continue;
+  if (!isWithinOneMinute(schedule.time)) continue;
 
-      // --- WordPress設定取得 ---
-      const { data: wp, error: wpError } = await supabase
-        .from("wordpress_configs")
-        .select("*")
-        .eq("id", schedule.wordpress_config_id)
-        .eq("is_active", true)
-        .single();
+  // --- WordPress設定取得 ---
+  const { data: wp, error: wpError } = await supabase
+    .from("wordpress_configs")
+    .select("*")
+    .eq("id", schedule.wordpress_config_id)
+    .eq("is_active", true)
+    .single();
 
-      if (wpError || !wp) {
-        console.log(`⚠️ WordPress設定が見つかりません (ID: ${schedule.wordpress_config_id})`);
-        continue;
-      }
+  if (wpError || !wp) {
+    console.log(`⚠️ WordPress設定が見つかりません (ID: ${schedule.wordpress_config_id})`);
+    continue;
+  }
 
-      console.log(`🌐 投稿先サイト: ${wp.sitename || "(名称未設定)"} → ${wp.url}`);
+  console.log(`🌐 投稿先サイト: ${wp.sitename || "(名称未設定)"} → ${wp.url}`);
 
-      // --- キーワード抽出 ---
-      let keyword = "";
-      try {
-        if (Array.isArray(schedule.keywords)) {
-          keyword = schedule.keywords[Math.floor(Math.random() * schedule.keywords.length)];
-        } else if (typeof schedule.keywords === "string") {
-          const arr = JSON.parse(schedule.keywords);
-          keyword = arr[Math.floor(Math.random() * arr.length)];
-        }
-      } catch {
-        keyword = String(schedule.keywords || "最新情報");
-      }
-
-      console.log(`🎯 キーワード: ${keyword}`);
-
-      // --- 記事生成 ---
-      const prompt = {
-        topic: keyword,
-        keywords: [keyword],
-        tone: "friendly",
-        length: "medium",
-        includeIntroduction: true,
-        includeConclusion: true,
-        includeSources: false,
-      };
-
-      const article = await aiService.generateArticle(prompt);
-      console.log("✅ 記事生成完了:", article.title);
-
-      // --- WordPress投稿 ---
-      const wpPost = await postToWordPress(wp, article);
-      console.log("📰 投稿完了:", wpPost.link);
-
-      // --- Supabase保存 ---
-      const { error: insertError } = await supabase.from("articles").insert({
-        title: article.title,
-        content: article.content,
-        category: wp.category,
-        wordpress_config_id: wp.id,
-        wordpress_post_id: String(wpPost.id),
-        status: "published",
-        created_at: new Date().toISOString(),
-      });
-
-      if (insertError)
-        throw new Error("記事保存失敗: " + insertError.message);
+  // --- ✅ キーワードをランダムに1つだけ抽出 ---
+  let keyword = "最新情報";
+  try {
+    if (Array.isArray(schedule.keywords)) {
+      keyword = schedule.keywords[Math.floor(Math.random() * schedule.keywords.length)];
+    } else if (typeof schedule.keywords === "string") {
+      const arr = JSON.parse(schedule.keywords);
+      keyword = arr[Math.floor(Math.random() * arr.length)];
     }
+  } catch {
+    keyword = String(schedule.keywords || "最新情報");
+  }
+
+  console.log(`🎯 今回選ばれたキーワード: ${keyword}`);
+
+  // --- ✅ ここで1記事のみ生成 ---
+  const prompt = {
+    topic: keyword,
+    keywords: [keyword],
+    tone: "friendly",
+    length: "medium",
+    includeIntroduction: true,
+    includeConclusion: true,
+    includeSources: false,
+  };
+
+  const article = await aiService.generateArticle(prompt);
+  console.log("✅ 記事生成完了:", article.title);
+
+  // --- WordPress投稿 ---
+  const wpPost = await postToWordPress(wp, article);
+  console.log("📰 投稿完了:", wpPost.link);
+
+  // --- Supabase保存 ---
+  const { error: insertError } = await supabase.from("articles").insert({
+    title: article.title,
+    content: article.content,
+    category: wp.category,
+    wordpress_config_id: wp.id,
+    wordpress_post_id: String(wpPost.id),
+    status: "published",
+    created_at: new Date().toISOString(),
+  });
+
+  if (insertError)
+    throw new Error("記事保存失敗: " + insertError.message);
+
+  // ✅ ← この位置でループ終了（1記事だけ）
+  break;
+}
 
     return { statusCode: 200, body: "Scheduler executed successfully" };
   } catch (err: any) {
