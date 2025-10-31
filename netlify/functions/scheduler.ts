@@ -114,7 +114,7 @@ export const handler: Handler = async () => {
     // --- 有効スケジュール取得 ---
     const { data: schedules, error: scheduleError } = await supabase
       .from("schedule_settings")
-      .select("*, wordpress_config_id")
+      .select("*, wordpress_id")
       .eq("enabled", true);
 
     if (scheduleError) throw new Error("スケジュール取得失敗: " + scheduleError.message);
@@ -133,12 +133,12 @@ export const handler: Handler = async () => {
     const { data: wp, error: wpError } = await supabase
       .from("wordpress_configs")
       .select("*")
-      .eq("id", schedule.wordpress_config_id)
+      .eq("id", schedule.wordpress_id)
       .eq("is_active", true)
       .single();
 
     if (wpError || !wp) {
-      console.log(`⚠️ WordPress設定が見つかりません (ID: ${schedule.wordpress_config_id})`);
+      console.log(`⚠️ WordPress設定が見つかりません (ID: ${schedule.wordpress_id})`);
       return { statusCode: 200, body: "No valid WordPress config" };
     }
 
@@ -183,7 +183,7 @@ export const handler: Handler = async () => {
       title: article.title,
       content: article.content,
       category: wp.category,
-      wordpress_config_id: wp.id,
+      wordpress_id: wp.id,
       wordpress_post_id: String(wpPost.id),
       status: "published",
       created_at: new Date().toISOString(),
