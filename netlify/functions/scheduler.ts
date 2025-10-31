@@ -122,4 +122,31 @@ export const handler: Handler = async () => {
       const keyword = Array.isArray(keywords)
         ? keywords[Math.floor(Math.random() * keywords.length)]
         : String(keywords).split(",")[0];
-      cons
+      console.log(`🎯 選択キーワード: ${keyword}`);
+
+      // AI記事生成
+      const article = await generateArticle(keyword);
+
+      // WordPress投稿
+      const wpPost = await postToWordPress(wp, article);
+
+      // Supabaseに記録
+      await supabase.from("articles").insert({
+        title: article.title,
+        content: article.content,
+        category: wp.category,
+        wordpress_config_id: wp.id,
+        wordpress_post_id: wpPost.id.toString(),
+        status: "published",
+        created_at: new Date().toISOString(),
+      });
+
+      console.log(`✅ 投稿完了: ${wpPost.link}`);
+    }
+
+    return { statusCode: 200, body: "Scheduler executed successfully" };
+  } catch (err: any) {
+    console.error("💥 エラー:", err.message);
+    return { statusCode: 500, body: err.message };
+  }
+};
