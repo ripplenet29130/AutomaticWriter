@@ -1,12 +1,11 @@
 import { Handler } from "@netlify/functions";
 import { createClient } from "@supabase/supabase-js";
 
-// === 環境変数 ===
+// === Supabase接続 ===
 const supabase = createClient(
   process.env.SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_KEY!
 );
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY!;
 
 // === Gemini 2.0 Flash による記事生成 ===
 async function generateArticle(keyword: string) {
@@ -73,12 +72,22 @@ async function postToWordPress(config: any, article: { title: string; content: s
   return response.json();
 }
 
+// === 時刻判定（±1分の許容） ===
+function isWithinOneMinute(targetTime: string): boolean {
+  const [h, m] = targetTime.split(":").map(Number);
+  const now = new Date();
+  const target = new Date();
+  target.setHours(h, m, 0, 0);
+  const diff = Math.abs(now.getTime() - target.getTime());
+  return diff <= 60 * 1000; // ±1分以内
+}
+
 // === メイン処理 ===
 export const handler: Handler = async () => {
-  try {
-    console.log("✅ スケジューラー起動");
+  console.log("✅ スケジューラー起動");
 
-    // 有効スケジュールを取得
+  try {
+    // スケジュール設定を取得
     const { data: schedules, error } = await supabase
       .from("schedule_settings")
       .select("*, wordpress_config_id")
@@ -90,58 +99,27 @@ export const handler: Handler = async () => {
     }
 
     for (const schedule of schedules) {
-      // 紐づくWordPress設定を取得
+      if (!isWithinOneMinute(schedule.time)) {
+        console.log(`⏸ スキップ: ${schedule.time} は現在時刻と一致しません`);
+        continue;
+      }
+
+      // WordPress設定を取得
       const { data: wp } = await supabase
-        .from("wordpress_config")
+        .from("wordpress_configs")
         .select("*")
         .eq("id", schedule.wordpress_config_id)
         .eq("is_active", true)
         .maybeSingle();
 
-      if (!wp) continue;
+      if (!wp) {
+        console.log("⚠️ WordPress設定が見つかりません");
+        continue;
+      }
 
-      // キーワード抽出
-      const keywords = schedule.keyword
-        ?.split(",")
-        .map((k: string) => k.trim())
-        .filter(Boolean);
-
-      if (!keywords?.length) continue;
-
-      const keyword = keywords[Math.floor(Math.random() * keywords.length)];
-      console.log(`🎯 選択キーワード: ${keyword}`);
-
-      // AI記事生成
-      const article = await generateArticle(keyword);
-
-      // WordPress投稿
-      const wpPost = await postToWordPress(wp, article);
-
-      // 投稿結果をarticlesに記録
-      await supabase.from("articles").insert({
-        title: article.title,
-        content: article.content,
-        category: wp.category,
-        wordpress_config_id: wp.id,
-        wordpress_post_id: wpPost.id.toString(),
-        status: "published",
-        created_at: new Date().toISOString(),
-      });
-
-      console.log(`✅ 投稿完了: ${wpPost.link}`);
-
-      // 使用済みキーワードを更新（任意で）
-      const usedList = schedule.used_keywords || [];
-      usedList.push(keyword);
-      await supabase
-        .from("schedule_settings")
-        .update({ used_keywords: usedList })
-        .eq("id", schedule.id);
-    }
-
-    return { statusCode: 200, body: "Auto-post completed" };
-  } catch (err: any) {
-    console.error("💥 エラー:", err.message);
-    return { statusCode: 500, body: err.message };
-  }
-};
+      // キーワード選択
+      const keywords = schedule.keywords || [];
+      const keyword = Array.isArray(keywords)
+        ? keywords[Math.floor(Math.random() * keywords.length)]
+        : String(keywords).split(",")[0];
+      cons
