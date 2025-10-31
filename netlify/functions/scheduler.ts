@@ -81,11 +81,36 @@ async function postToWordPress(config: any, article: { title: string; content: s
   return response.json();
 }
 
+
 // === メイン処理 ===
 export const handler: Handler = async () => {
   console.log("✅ スケジューラー起動");
 
   try {
+    // --- 🔹 二重実行防止: 最終実行時刻チェック ---
+    const { data: lastRunData } = await supabase
+      .from("system_logs")
+      .select("*")
+      .eq("type", "scheduler_last_run")
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .single();
+
+    const now = new Date();
+    if (lastRunData) {
+      const lastRun = new Date(lastRunData.created_at);
+      const diff = (now.getTime() - lastRun.getTime()) / 1000;
+      if (diff < 60) {
+        console.log(`⏸ 実行スキップ: ${diff.toFixed(1)}秒前に実行済み`);
+        return { statusCode: 200, body: "Skipped duplicate execution" };
+      }
+    }
+
+    // --- 🔹 実行ログ記録（最終実行時刻を保存） ---
+    await supabase.from("system_logs").insert([
+      { type: "scheduler_last_run", created_at: now.toISOString() },
+    ]);
+
     // --- 有効スケジュール取得 ---
     const { data: schedules, error: scheduleError } = await supabase
       .from("schedule_settings")
@@ -168,6 +193,7 @@ export const handler: Handler = async () => {
 
     console.log("💾 Supabaseへ保存完了");
     return { statusCode: 200, body: "✅ 1記事のみ投稿完了" };
+
   } catch (err: any) {
     console.error("💥 エラー詳細:", err);
     return { statusCode: 500, body: JSON.stringify({ message: err.message }) };
