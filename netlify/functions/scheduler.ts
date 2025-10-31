@@ -9,7 +9,7 @@ const supabase = createClient(
 );
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY!;
 
-// === Gemini（Google AI）による記事生成 ===
+// === Gemini 2.0 Flash による記事生成 ===
 async function generateArticle(keyword: string) {
   const GEMINI_API_KEY = process.env.GEMINI_API_KEY!;
   const prompt = `
@@ -17,14 +17,14 @@ async function generateArticle(keyword: string) {
 次のキーワード「${keyword}」に関する記事を作成してください。
 
 条件:
-- タイトルは1行で、魅力的で検索されやすいものにする
+- タイトルは1行で魅力的に（読者がクリックしたくなるように）
 - 本文は見出し(H2)と段落を含み、全体で700〜900文字程度
-- です・ます調
-- 結論で読者に行動を促す内容にする
+- 文体は「です・ます調」
+- 最後に読者へ行動を促す一文を加える
 `;
 
   const response = await fetch(
-    "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent",
+    "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent",
     {
       method: "POST",
       headers: {
