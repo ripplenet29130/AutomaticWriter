@@ -1,5 +1,6 @@
 import React from 'react';
-import { Settings } from 'lucide-react';
+import { Settings, Database } from 'lucide-react';
+import { DataMigration } from './DataMigration';
 
 export const SettingsComponent: React.FC = () => {
   return (
@@ -12,11 +13,22 @@ export const SettingsComponent: React.FC = () => {
         </div>
       </div>
 
+      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+        <div className="flex items-center gap-2 mb-4">
+          <Database className="w-5 h-5 text-blue-600" />
+          <h3 className="text-lg font-semibold text-gray-900">データ移行</h3>
+        </div>
+        <p className="text-sm text-gray-600 mb-4">
+          ローカルストレージからSupabaseデータベースへの記事移行
+        </p>
+        <DataMigration />
+      </div>
+
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-8 text-center">
         <Settings className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-        <h3 className="text-lg font-medium text-gray-900 mb-2">設定機能</h3>
+        <h3 className="text-lg font-medium text-gray-900 mb-2">その他の設定</h3>
         <p className="text-gray-600">
-          基本的な設定機能です。必要に応じて機能を追加できます。
+          必要に応じて追加の設定機能を実装できます
         </p>
       </div>
     </div>
