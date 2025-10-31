@@ -6,9 +6,10 @@
 [functions]
   node_bundler = "esbuild"
 
-  [functions."*"]
-    timeout = 26
+[functions."*"]
+  timeout = 26
 
-[[scheduled]]
-path = "/.netlify/functions/scheduler"
-schedule = "*/1 * * * *"
+# ✅ スケジューラー設定
+[[functions]]
+  name = "scheduler"
+  schedule = "*/1 * * * *"
